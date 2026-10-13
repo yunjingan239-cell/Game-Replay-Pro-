@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Game Replay Pro</string>
+    <string name="notification_channel_name">Game Replay Recording</string>
+    <string name="notification_channel_desc">Active background buffer for instant gameplay replay</string>
+    <string name="notification_title">Game Replay Active</string>
+    <string name="notification_text">Buffering recent gameplay. Tap to clip or configure.</string>
+    <string name="notification_action_save">Save Clip</string>
+    <string name="notification_action_stop">Stop Buffer</string>
+    <string name="saving_clip_notification">Stitching and saving replay clip...</string>
+    <string name="clip_saved_toast">Replay saved successfully!</string>
+</resources>

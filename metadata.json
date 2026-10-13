@@ -1,0 +1,6 @@
+{
+  "name": "Game Replay Pro",
+  "description": "High-performance instant replay assistant for mobile gamers with rolling video buffer and floating trigger.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
