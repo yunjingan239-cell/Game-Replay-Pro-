@@ -249,7 +249,7 @@ class ReplayRecorderService : Service() {
                 Toast.makeText(this@ReplayRecorderService, getString(R.string.clip_saved_toast), Toast.LENGTH_LONG).show()
                 Log.i(tag, "Replay successfully saved: ${savedClip.title}")
             } else {
-                Toast.makeText(this@ReplayRecorderService, "已生成高光瞬间", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ReplayRecorderService, "🎉 精彩瞬间已保存！", Toast.LENGTH_SHORT).show()
             }
         }
     }

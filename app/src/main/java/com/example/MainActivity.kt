@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -22,6 +23,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Movie
@@ -169,53 +172,54 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground),
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             // In Game Mode, automatically hide the bottom navigation bar to maximize gaming immersion
             if (!settings.isGameModeActive) {
-                Surface(
+                androidx.compose.material3.NavigationBar(
+                    containerColor = PureWhite,
+                    contentColor = PrimaryBlue,
+                    tonalElevation = 0.dp,
+                    windowInsets = androidx.compose.material3.NavigationBarDefaults.windowInsets,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .navigationBarsPadding(),
-                    color = PureWhite,
-                    shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-                    shadowElevation = 10.dp,
-                    border = BorderStroke(1.dp, BorderSubtle)
-                ) {
-                    NavigationBar(
-                        containerColor = PureWhite,
-                        contentColor = PrimaryBlue,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        NavigationTab.entries.forEach { tab ->
-                            val isSelected = currentTab == tab
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = { currentTab = tab },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.title,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.title,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = PrimaryBlue,
-                                    selectedTextColor = PrimaryBlue,
-                                    indicatorColor = PrimaryBlueLight,
-                                    unselectedIconColor = TextMuted,
-                                    unselectedTextColor = TextMuted
-                                ),
-                                modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                        .drawBehind {
+                            drawLine(
+                                color = BorderSubtle,
+                                start = Offset(0f, 0f),
+                                end = Offset(size.width, 0f),
+                                strokeWidth = 1.dp.toPx()
                             )
                         }
+                ) {
+                    NavigationTab.entries.forEach { tab ->
+                        val isSelected = currentTab == tab
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { currentTab = tab },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = tab.title,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = PrimaryBlue,
+                                selectedTextColor = PrimaryBlue,
+                                indicatorColor = PrimaryBlueLight,
+                                unselectedIconColor = TextMuted,
+                                unselectedTextColor = TextMuted
+                            ),
+                            modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                        )
                     }
                 }
             }
@@ -226,7 +230,7 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                 .fillMaxSize()
                 .background(AppBackground)
                 .statusBarsPadding()
-                .padding(innerPadding)
+                .padding(bottom = innerPadding.calculateBottomPadding())
         ) {
             Crossfade(
                 targetState = currentTab,

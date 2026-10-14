@@ -1,8 +1,13 @@
 package com.example.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,11 +38,15 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ReplaySettings
@@ -170,75 +179,104 @@ fun GameModeScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        detectedGames.forEach { game ->
-                            val isCurrentGame = settings.currentGameTitle == game.title
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = if (isCurrentGame) Color(0xFFF0F7FF) else Color(0xFFF7F9FC),
-                                border = BorderStroke(1.dp, if (isCurrentGame) PrimaryBlue.copy(alpha = 0.4f) else BorderSubtle),
+                    if (detectedGames.isEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSelectGame(game.title) }
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .background(PrimaryBlueLight),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                Icon(
+                                    imageVector = Icons.Default.SportsEsports,
+                                    contentDescription = null,
+                                    tint = PrimaryBlue,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "暂未检测到已安装的手游",
+                                color = TextTitle,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "系统已开启实时感知，当您在手机上安装手游后将自动在此处展示游戏专属真实图标与启动入口",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 24.dp)
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            detectedGames.forEach { game ->
+                                val isCurrentGame = settings.currentGameTitle == game.title
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = if (isCurrentGame) Color(0xFFF0F7FF) else Color(0xFFF7F9FC),
+                                    border = BorderStroke(1.dp, if (isCurrentGame) PrimaryBlue.copy(alpha = 0.4f) else BorderSubtle),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onSelectGame(game.title) }
                                 ) {
                                     Row(
+                                        modifier = Modifier.padding(14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.weight(1f)
+                                        horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(if (isCurrentGame) PrimaryBlue else Color(0xFFE2E8F0)),
-                                            contentAlignment = Alignment.Center
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f)
                                         ) {
-                                            Text(
-                                                text = game.title.take(1),
-                                                color = if (isCurrentGame) PureWhite else TextTitle,
-                                                fontSize = 16.sp,
-                                                fontWeight = FontWeight.Bold
+                                            GameAppIcon(
+                                                game = game,
+                                                isCurrentGame = isCurrentGame
                                             )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(
+                                                    text = game.title,
+                                                    color = TextTitle,
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = if (isCurrentGame) "当前关联游戏" else "点击设为当前关联",
+                                                    color = if (isCurrentGame) PrimaryBlue else TextMuted,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
                                         }
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column {
-                                            Text(
-                                                text = game.title,
-                                                color = TextTitle,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Text(
-                                                text = if (isCurrentGame) "当前关联游戏" else "点击设为当前关联",
-                                                color = if (isCurrentGame) PrimaryBlue else TextMuted,
-                                                fontSize = 11.sp
-                                            )
-                                        }
-                                    }
 
-                                    Button(
-                                        onClick = { onLaunchGame(game) },
-                                        shape = RoundedCornerShape(12.dp),
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (isCurrentGame) PrimaryBlue else PureWhite,
-                                            contentColor = if (isCurrentGame) PureWhite else PrimaryBlue
-                                        ),
-                                        border = if (!isCurrentGame) BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.5f)) else null,
-                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                                        modifier = Modifier.height(34.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = "Launch",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(text = "启动对局", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Button(
+                                            onClick = { onLaunchGame(game) },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (isCurrentGame) PrimaryBlue else PureWhite,
+                                                contentColor = if (isCurrentGame) PureWhite else PrimaryBlue
+                                            ),
+                                            border = if (!isCurrentGame) BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.5f)) else null,
+                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            modifier = Modifier.height(34.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayArrow,
+                                                contentDescription = "Launch",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(text = "启动对局", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
                             }
@@ -329,3 +367,63 @@ fun GameModeScreen(
         }
     }
 }
+
+@Composable
+fun GameAppIcon(
+    game: InstalledGame,
+    isCurrentGame: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val appIcon = remember(game.packageName) {
+        loadAppIconBitmap(context, game.packageName)
+    }
+
+    if (appIcon != null) {
+        Image(
+            bitmap = appIcon,
+            contentDescription = game.title,
+            modifier = modifier
+                .size(46.dp)
+                .clip(RoundedCornerShape(12.dp)),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Box(
+            modifier = modifier
+                .size(46.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (isCurrentGame) PrimaryBlueLight else Color(0xFFF0F3F8)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.SportsEsports,
+                contentDescription = game.title,
+                tint = if (isCurrentGame) PrimaryBlue else TextMuted,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+private fun loadAppIconBitmap(context: android.content.Context, packageName: String): androidx.compose.ui.graphics.ImageBitmap? {
+    return try {
+        val pm = context.packageManager
+        val drawable = pm.getApplicationIcon(packageName)
+        val bitmap = if (drawable is BitmapDrawable && drawable.bitmap != null) {
+            drawable.bitmap
+        } else {
+            val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
+            val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
+            val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            drawable.setBounds(0, 0, canvas.width, canvas.height)
+            drawable.draw(canvas)
+            bmp
+        }
+        bitmap.asImageBitmap()
+    } catch (_: Exception) {
+        null
+    }
+}
+

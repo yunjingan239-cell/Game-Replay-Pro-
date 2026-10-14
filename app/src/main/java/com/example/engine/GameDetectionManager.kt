@@ -53,6 +53,8 @@ class GameDetectionManager(private val context: Context) {
 
             for (resolveInfo in resolvedApps) {
                 val pkgName = resolveInfo.activityInfo.packageName
+                if (pkgName == context.packageName) continue
+
                 val appInfo = try {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         pm.getApplicationInfo(pkgName, PackageManager.ApplicationInfoFlags.of(0))
@@ -63,6 +65,8 @@ class GameDetectionManager(private val context: Context) {
                 } catch (_: Exception) {
                     continue
                 }
+
+                if (!appInfo.enabled) continue
 
                 val appLabel = resolveInfo.loadLabel(pm).toString()
 
@@ -92,29 +96,40 @@ class GameDetectionManager(private val context: Context) {
             Log.w(tag, "Failed to scan installed apps: ${e.message}")
         }
 
-        // Ensure popular esports games are available in the game hub even if not locally installed
-        if (detected.isEmpty()) {
-            detected.addAll(getDefaultSupportedGames())
+        // Explicitly probe known esports titles directly by package name to catch any missed launcher intents,
+        // strictly verifying that the game is ACTUALLY installed and launchable on the device
+        for ((pkgName, knownTitle) in knownGamePackages) {
+            if (detected.any { it.packageName == pkgName }) continue
+            try {
+                val appInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getApplicationInfo(pkgName, PackageManager.ApplicationInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getApplicationInfo(pkgName, 0)
+                }
+                val launchIntent = pm.getLaunchIntentForPackage(pkgName)
+                if (launchIntent != null && appInfo.enabled) {
+                    detected.add(
+                        InstalledGame(
+                            title = knownTitle,
+                            packageName = pkgName,
+                            isSystemGame = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                        )
+                    )
+                }
+            } catch (_: PackageManager.NameNotFoundException) {
+                // Game is NOT installed on this device: strictly do not display as requested by user
+            } catch (_: Exception) {}
         }
 
         return detected
     }
 
     /**
-     * Fallback standard list of supported popular mobile titles.
+     * Fallback returns empty list: games that are not installed on device will strictly NOT be displayed.
      */
     fun getDefaultSupportedGames(): List<InstalledGame> {
-        return listOf(
-            InstalledGame("王者荣耀", "com.tencent.tmgp.sgame"),
-            InstalledGame("和平精英", "com.tencent.tmgp.pubgmhd"),
-            InstalledGame("原神", "com.miHoYo.Yuanshen"),
-            InstalledGame("崩坏：星穹铁道", "com.miHoYo.hkrpg"),
-            InstalledGame("英雄联盟手游", "com.tencent.lolm"),
-            InstalledGame("使命召唤手游", "com.tencent.tmgp.cod"),
-            InstalledGame("金铲铲之战", "com.tencent.tmgp.jgame"),
-            InstalledGame("蛋仔派对", "com.netease.party"),
-            InstalledGame("通用电竞手游", "com.example.generic.game")
-        )
+        return emptyList()
     }
 
     /**

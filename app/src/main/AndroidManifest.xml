@@ -17,6 +17,19 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <package android:name="com.tencent.tmgp.sgame" />
+        <package android:name="com.tencent.tmgp.pubgmhd" />
+        <package android:name="com.miHoYo.Yuanshen" />
+        <package android:name="com.miHoYo.hkrpg" />
+        <package android:name="com.tencent.lolm" />
+        <package android:name="com.tencent.tmgp.cf" />
+        <package android:name="com.tencent.tmgp.cod" />
+        <package android:name="com.tencent.tmgp.jgame" />
+        <package android:name="com.netease.party" />
+        <package android:name="com.tencent.tmgp.hyrz" />
+        <package android:name="com.hypergryph.arknights" />
+        <package android:name="com.tencent.tmgp.dgame" />
+        <package android:name="com.netease.yys" />
     </queries>
 
     <application

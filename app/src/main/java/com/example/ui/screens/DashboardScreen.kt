@@ -647,7 +647,7 @@ fun DashboardScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Videocam,
-                                        contentDescription = "No replays yet",
+                                        contentDescription = "暂无回录视频",
                                         tint = PrimaryBlue,
                                         modifier = Modifier.size(32.dp)
                                     )

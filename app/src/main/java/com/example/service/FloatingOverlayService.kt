@@ -423,7 +423,7 @@ fun FloatingReplayOverlay(
             ) {
                 Icon(
                     imageVector = if (isSaving) Icons.Default.FiberManualRecord else Icons.Default.Bolt,
-                    contentDescription = "Save Replay",
+                    contentDescription = "保存高光瞬间",
                     tint = if (isSaving) PureWhite else PrimaryBlue,
                     modifier = Modifier.size((animatedButtonSizeDp.value * 0.52f).dp)
                 )
@@ -481,7 +481,7 @@ fun FloatingReplayOverlay(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.PhotoSizeSelectSmall,
-                                    contentDescription = "Change Size",
+                                    contentDescription = "调整悬浮球尺寸",
                                     tint = PrimaryBlue,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -498,7 +498,7 @@ fun FloatingReplayOverlay(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.VisibilityOff,
-                                    contentDescription = "Collapse to Edge",
+                                    contentDescription = "吸附收起至边缘",
                                     tint = Color(0xFFFA8C16),
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -514,7 +514,7 @@ fun FloatingReplayOverlay(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
-                                    contentDescription = "Open App",
+                                    contentDescription = "返回主应用",
                                     tint = TextTitle,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -529,7 +529,7 @@ fun FloatingReplayOverlay(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
+                                    contentDescription = "关闭悬浮球",
                                     tint = Color(0xFFFF4D4F),
                                     modifier = Modifier.size(16.dp)
                                 )

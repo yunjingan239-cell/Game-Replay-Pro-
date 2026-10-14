@@ -116,7 +116,7 @@ class ScreenRecordingEngine(
             Log.i(tag, "Commercial instant replay engine active ($encoderName, MIME=$activeMimeType, HDR=$isHdrEnabled)")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start hardware recording engine", e)
-            onError("Encoder error: ${e.localizedMessage}")
+            onError("硬件录制编码器初始化失败: ${e.localizedMessage}")
             stopRecording()
         }
     }
@@ -127,7 +127,7 @@ class ScreenRecordingEngine(
         lastReportedLandscape = isLandscape
 
         val (w, h) = if (settings.autoDetectOrientation) {
-            settings.getEffectiveDimensions(isLandscape)
+            settings.getEffectiveDimensions(context, isLandscape)
         } else {
             Pair(settings.resolutionWidth, settings.resolutionHeight)
         }
@@ -285,24 +285,7 @@ class ScreenRecordingEngine(
                     val isLandscapeNow = isDeviceInLandscape()
                     if (lastReportedLandscape != isLandscapeNow) {
                         lastReportedLandscape = isLandscapeNow
-                        Log.i(tag, "Orientation flipped: landscape=$isLandscapeNow. Re-adapting dimensions...")
-                        val (newW, newH) = settings.getEffectiveDimensions(isLandscapeNow)
-                        currentWidth = newW
-                        currentHeight = newH
-                        virtualDisplay?.resize(newW, newH, context.resources.displayMetrics.densityDpi)
-
-                        onTelemetryUpdate(
-                            EncoderTelemetry(
-                                encoderName = encoderName,
-                                codecMime = if (activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "HEVC (H.265)" else "AVC (H.264)",
-                                isHardwareAccelerated = isHwAccelerated,
-                                isHdrActive = isHdrEnabled,
-                                currentOrientation = if (isLandscapeNow) "横屏对局 (${newW}x${newH})" else "竖屏大厅 (${newW}x${newH})",
-                                activeResolution = "${newW}x${newH}",
-                                activeFps = settings.fps,
-                                compressionRatio = if (activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "HEVC 50%高压缩" else "AVC 标准压缩"
-                            )
-                        )
+                        handleOrientationFlipped(settings, isLandscapeNow)
                     }
                 }
             }
@@ -311,6 +294,52 @@ class ScreenRecordingEngine(
             }
         } catch (e: Exception) {
             Log.w(tag, "OrientationEventListener setup skipped: ${e.message}")
+        }
+    }
+
+    private fun handleOrientationFlipped(settings: ReplaySettings, isLandscapeNow: Boolean) {
+        backgroundHandler?.post {
+            if (!isRecording) return@post
+            try {
+                Log.i(tag, "Orientation flipped: landscape=$isLandscapeNow. Recreating encoder for native aspect ratio...")
+
+                // 1. Flush active chunk
+                try {
+                    if (isMuxerStarted) {
+                        currentMuxer?.stop()
+                    }
+                    currentMuxer?.release()
+                } catch (_: Exception) {}
+                currentMuxer = null
+                isMuxerStarted = false
+
+                val completedFile = currentChunkFile
+                val durationMs = System.currentTimeMillis() - chunkStartTime
+                if (completedFile != null && completedFile.exists() && completedFile.length() > 0) {
+                    bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
+                    onChunkSaved(completedFile, durationMs)
+                }
+
+                // 2. Tear down previous encoder & display
+                try {
+                    mediaCodec?.stop()
+                    mediaCodec?.release()
+                } catch (_: Exception) {}
+                mediaCodec = null
+
+                inputSurface?.release()
+                inputSurface = null
+
+                virtualDisplay?.release()
+                virtualDisplay = null
+
+                cachedOutputFormat = null
+
+                // 3. Re-setup with native aspect ratio dimensions
+                setupCodecAndVirtualDisplay(settings)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to adapt orientation encoder", e)
+            }
         }
     }
 

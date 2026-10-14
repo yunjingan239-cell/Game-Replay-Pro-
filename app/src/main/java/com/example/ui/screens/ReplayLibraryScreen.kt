@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
+import android.widget.Toast
+import com.example.util.MediaExportHelper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -273,6 +276,15 @@ fun ReplayLibraryScreen(
                     ModernVideoCard(
                         clip = clip,
                         onPlay = { onPlayClip(clip) },
+                        onSaveToGallery = {
+                            val file = File(clip.filePath)
+                            val res = MediaExportHelper.saveVideoToGallery(context, file, clip.title)
+                            if (res.isSuccess) {
+                                Toast.makeText(context, "✅ 已成功保存到系统相册 (Movies/GameReplay)", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, "保存失败: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
                         onShare = { shareClip(context, clip) },
                         onRename = {
                             clipToRename = clip
@@ -364,6 +376,7 @@ fun ReplayLibraryScreen(
 fun ModernVideoCard(
     clip: ReplayClip,
     onPlay: () -> Unit,
+    onSaveToGallery: () -> Unit,
     onShare: () -> Unit,
     onRename: () -> Unit,
     onDelete: () -> Unit,
@@ -476,6 +489,14 @@ fun ModernVideoCard(
 
                     // Action Icons Row
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onSaveToGallery, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Save to Gallery",
+                                tint = PrimaryBlue,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
                         IconButton(onClick = onToggleFavorite, modifier = Modifier.size(36.dp)) {
                             Icon(
                                 imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,

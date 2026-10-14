@@ -1,11 +1,11 @@
 <resources>
     <string name="app_name">Game Replay Pro</string>
-    <string name="notification_channel_name">Game Replay Recording</string>
-    <string name="notification_channel_desc">Active background buffer for instant gameplay replay</string>
-    <string name="notification_title">Game Replay Active</string>
-    <string name="notification_text">Buffering recent gameplay. Tap to clip or configure.</string>
-    <string name="notification_action_save">Save Clip</string>
-    <string name="notification_action_stop">Stop Buffer</string>
-    <string name="saving_clip_notification">Stitching and saving replay clip...</string>
-    <string name="clip_saved_toast">Replay saved successfully!</string>
+    <string name="notification_channel_name">游戏即时回录服务</string>
+    <string name="notification_channel_desc">用于后台常驻循环缓冲并截取精彩游戏对局的通知通道</string>
+    <string name="notification_title">游戏回录引擎运行中</string>
+    <string name="notification_text">正在循环记录最新游戏画面，轻触悬浮球即可一键保存精彩高光</string>
+    <string name="notification_action_save">保存精彩瞬间</string>
+    <string name="notification_action_stop">停止回录引擎</string>
+    <string name="saving_clip_notification">⚡ 正在提取并生成精彩瞬间回录...</string>
+    <string name="clip_saved_toast">🎉 精彩瞬间已成功保存！可前往相册或视频库查看</string>
 </resources>

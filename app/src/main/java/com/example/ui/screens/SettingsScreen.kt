@@ -167,7 +167,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // 1.2 Video Quality / Resolution
-                    Text("视频质量与分辨率", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("视频质量与分辨率 (自动按屏幕原生比例对齐，杜绝画面裁剪)", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -175,11 +175,13 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val row1 = listOf(
-                                Triple(1280, 720, "720P 极速省电"),
-                                Triple(1920, 1080, "1080P 电竞主流")
+                                Triple(2400, 1080, "原生对齐 (无裁切)"),
+                                Triple(1920, 1080, "1080P 超清对齐")
                             )
                             row1.forEach { (w, h, label) ->
-                                val isSelected = settings.resolutionWidth == w
+                                val isSelected = (label.contains("原生") && settings.resolutionLabel.contains("原生")) ||
+                                        (label.contains("1080P") && settings.resolutionLabel.contains("1080")) ||
+                                        settings.resolutionLabel == label
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -213,11 +215,13 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val row2 = listOf(
-                                Triple(2560, 1440, "2K 旗舰超清"),
-                                Triple(2400, 1080, "原生屏幕对齐")
+                                Triple(1280, 720, "720P 极速省电"),
+                                Triple(2560, 1440, "2K 旗舰超清")
                             )
                             row2.forEach { (w, h, label) ->
-                                val isSelected = settings.resolutionWidth == w
+                                val isSelected = (label.contains("720P") && settings.resolutionLabel.contains("720")) ||
+                                        (label.contains("2K") && settings.resolutionLabel.contains("2K")) ||
+                                        settings.resolutionLabel == label
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
