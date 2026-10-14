@@ -73,6 +73,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.ui.theme.BorderSubtle
+import com.example.ui.theme.PrimaryBlue
+import com.example.ui.theme.PureWhite
+import com.example.ui.theme.TextMuted
+import com.example.ui.theme.TextTitle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
@@ -87,6 +92,14 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.GameReplayApplication
 import com.example.MainActivity
 import com.example.data.model.ReplaySettings
+
+import android.app.Notification
+import android.app.PendingIntent
+import androidx.core.app.NotificationCompat
+import com.example.R
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
 
 /**
  * Enhanced Gaming Floating Replay Overlay:
@@ -119,16 +132,60 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        try {
+            startForeground(
+                GameReplayApplication.NOTIFICATION_ID_OVERLAY,
+                createOverlayNotification()
+            )
+        } catch (e: Exception) {
+            android.util.Log.w("FloatingOverlayService", "startForeground error: ${e.message}")
+        }
 
         if (Settings.canDrawOverlays(this)) {
-            showFloatingOverlay()
+            if (overlayView == null) {
+                showFloatingOverlay()
+            }
         } else {
             stopSelf()
         }
+        return START_STICKY
+    }
+
+    private fun createOverlayNotification(): Notification {
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val openPendingIntent = PendingIntent.getActivity(
+            this, 100, openAppIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        val saveIntent = Intent(this, ReplayRecorderService::class.java).apply {
+            action = ReplayRecorderService.ACTION_SAVE_CLIP
+        }
+        val savePendingIntent = PendingIntent.getService(
+            this, 101, saveIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        return NotificationCompat.Builder(this, GameReplayApplication.CHANNEL_ID_REPLAY)
+            .setContentTitle("Game Replay Pro 悬浮球运行中")
+            .setContentText("点击返回应用，或点击通知保存精彩瞬间")
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentIntent(openPendingIntent)
+            .addAction(0, "保存精彩瞬间", savePendingIntent)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun showFloatingOverlay() {
+        if (overlayView != null) return
+
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -170,7 +227,9 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
                     onDragDelta = { dx, dy ->
                         params.x += dx.toInt()
                         params.y += dy.toInt()
-                        windowManager?.updateViewLayout(this, params)
+                        try {
+                            windowManager?.updateViewLayout(this, params)
+                        } catch (_: Exception) {}
                     },
                     onTriggerSave = {
                         ReplayRecorderService.triggerSaveClip(this@FloatingOverlayService)
@@ -189,23 +248,36 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
         }
 
         overlayView = composeView
-        windowManager?.addView(composeView, params)
+        try {
+            windowManager?.addView(composeView, params)
+        } catch (e: Exception) {
+            android.util.Log.e("FloatingOverlayService", "Failed to add overlay view", e)
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
         overlayView?.let { view ->
-            windowManager?.removeView(view)
+            try {
+                windowManager?.removeView(view)
+            } catch (_: Exception) {}
         }
         overlayView = null
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {}
     }
 
     companion object {
         fun start(context: Context) {
             if (Settings.canDrawOverlays(context)) {
                 val intent = Intent(context, FloatingOverlayService::class.java)
-                context.startService(intent)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
             }
         }
 
@@ -264,14 +336,14 @@ fun FloatingReplayOverlay(
             .animateContentSize()
     ) {
         if (isHiddenCollapsed) {
-            // Ultra-compact edge strip handle when hidden
+            // Ultra-compact edge strip handle when hidden (iOS/MIUI assistive handle style)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(width = 24.dp, height = 48.dp)
+                    .size(width = 20.dp, height = 44.dp)
                     .clip(RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
-                    .background(Color(0xCC00E5FF))
-                    .border(1.dp, Color.White, RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
+                    .background(PrimaryBlue.copy(alpha = 0.85f))
+                    .border(1.dp, PureWhite.copy(alpha = 0.9f), RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp))
                     .clickable {
                         isHiddenCollapsed = false
                         onUpdateSettings(settings.copy(isFloatingButtonCollapsed = false))
@@ -280,12 +352,12 @@ fun FloatingReplayOverlay(
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowRight,
                     contentDescription = "Expand Floating Button",
-                    tint = Color.Black,
-                    modifier = Modifier.size(18.dp)
+                    tint = PureWhite,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         } else {
-            // Main Floating Micro-Dot
+            // Main Floating Micro-Ball (Clean iOS AssistiveTouch / Xiaomi Game Assistant style)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
@@ -294,44 +366,70 @@ fun FloatingReplayOverlay(
                     .scale(if (isBuffering || isSaving) pulseScale else 1f)
                     .clip(CircleShape)
                     .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                if (isSaving) Color(0xFFFF1744) else Color(0xFF00E5FF),
-                                Color(0xDD090C10)
-                            )
-                        )
+                        if (isSaving) {
+                            Color(0xFFFF4D4F).copy(alpha = 0.9f)
+                        } else {
+                            PureWhite.copy(alpha = 0.95f)
+                        }
                     )
                     .border(
-                        width = 2.dp,
-                        color = if (isSaving) Color(0xFFFF1744) else Color(0xFF00E5FF),
+                        width = 1.5.dp,
+                        color = if (isSaving) Color(0xFFFF4D4F) else PrimaryBlue.copy(alpha = 0.65f),
                         shape = CircleShape
                     )
                     .pointerInput(Unit) {
-                        detectDragGestures { change, dragAmount ->
-                            change.consume()
-                            onDragDelta(dragAmount.x, dragAmount.y)
-                        }
-                    }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                onTriggerSave()
-                            },
-                            onLongPress = {
-                                isExpanded = !isExpanded
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            var totalDragX = 0f
+                            var totalDragY = 0f
+                            var isDragStarted = false
+                            val touchSlop = viewConfiguration.touchSlop
+                            val longPressTimeout = 450L
+                            val downTime = System.currentTimeMillis()
+                            var pointerUp = false
+
+                            while (!pointerUp) {
+                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                if (!change.pressed) {
+                                    pointerUp = true
+                                    val duration = System.currentTimeMillis() - downTime
+                                    if (!isDragStarted) {
+                                        if (duration >= longPressTimeout) {
+                                            isExpanded = !isExpanded
+                                        } else {
+                                            onTriggerSave()
+                                        }
+                                    }
+                                } else {
+                                    val dragDeltaX = change.position.x - change.previousPosition.x
+                                    val dragDeltaY = change.position.y - change.previousPosition.y
+                                    totalDragX += kotlin.math.abs(dragDeltaX)
+                                    totalDragY += kotlin.math.abs(dragDeltaY)
+
+                                    if (!isDragStarted && (totalDragX > touchSlop || totalDragY > touchSlop)) {
+                                        isDragStarted = true
+                                    }
+
+                                    if (isDragStarted) {
+                                        change.consume()
+                                        onDragDelta(dragDeltaX, dragDeltaY)
+                                    }
+                                }
                             }
-                        )
+                        }
                     }
             ) {
                 Icon(
                     imageVector = if (isSaving) Icons.Default.FiberManualRecord else Icons.Default.Bolt,
                     contentDescription = "Save Replay",
-                    tint = Color.White,
-                    modifier = Modifier.size((animatedButtonSizeDp.value * 0.55f).dp)
+                    tint = if (isSaving) PureWhite else PrimaryBlue,
+                    modifier = Modifier.size((animatedButtonSizeDp.value * 0.52f).dp)
                 )
             }
 
-            // Quick HUD Menu when expanded
+            // Quick HUD Menu when expanded (Clean white floating card)
             AnimatedVisibility(
                 visible = isExpanded,
                 enter = fadeIn() + scaleIn(spring()),
@@ -340,10 +438,10 @@ fun FloatingReplayOverlay(
                 Box(
                     modifier = Modifier
                         .padding(top = 8.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xF010141E))
-                        .border(1.dp, Color(0xFF2B334D), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(PureWhite.copy(alpha = 0.98f))
+                        .border(1.dp, BorderSubtle, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -355,20 +453,19 @@ fun FloatingReplayOverlay(
                         ) {
                             Column {
                                 Text(
-                                    text = if (isBuffering) "BUFF: ${bufferedSec}s" else "待机",
-                                    color = Color(0xFF00E5FF),
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                    text = if (isBuffering) "已缓冲: ${bufferedSec}s" else "引擎待机",
+                                    color = PrimaryBlue,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "单击截取 • 音量键亦可",
-                                    color = Color(0xFF94A3B8),
-                                    fontSize = 9.sp
+                                    text = "轻触截取 • 双击音量亦可",
+                                    color = TextMuted,
+                                    fontSize = 10.sp
                                 )
                             }
 
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
 
                             // Size toggle button (Cycles 36 -> 48 -> 60)
                             IconButton(
@@ -385,7 +482,7 @@ fun FloatingReplayOverlay(
                                 Icon(
                                     imageVector = Icons.Default.PhotoSizeSelectSmall,
                                     contentDescription = "Change Size",
-                                    tint = Color(0xFF00E5FF),
+                                    tint = PrimaryBlue,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -402,7 +499,7 @@ fun FloatingReplayOverlay(
                                 Icon(
                                     imageVector = Icons.Default.VisibilityOff,
                                     contentDescription = "Collapse to Edge",
-                                    tint = Color(0xFFFFB74D),
+                                    tint = Color(0xFFFA8C16),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -418,7 +515,7 @@ fun FloatingReplayOverlay(
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
                                     contentDescription = "Open App",
-                                    tint = Color.White,
+                                    tint = TextTitle,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -433,7 +530,7 @@ fun FloatingReplayOverlay(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Close",
-                                    tint = Color(0xFFFF5252),
+                                    tint = Color(0xFFFF4D4F),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }

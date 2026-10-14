@@ -36,7 +36,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,14 +44,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.example.data.local.ReplayClip
-import com.example.ui.theme.CyberBlack
-import com.example.ui.theme.CyberBorder
-import com.example.ui.theme.CyberSurfaceCard
-import com.example.ui.theme.CyberSurfaceDark
-import com.example.ui.theme.ElectricCyan
+import com.example.ui.theme.BorderSubtle
+import com.example.ui.theme.PrimaryBlue
+import com.example.ui.theme.PureWhite
+import com.example.ui.theme.TextBody
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.TextTitle
 import java.io.File
 
 @Composable
@@ -70,14 +67,15 @@ fun VideoPlayerDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .clip(RoundedCornerShape(20.dp))
-                .border(1.dp, CyberBorder, RoundedCornerShape(20.dp)),
-            color = CyberSurfaceDark
+                .clip(RoundedCornerShape(22.dp))
+                .border(1.dp, BorderSubtle, RoundedCornerShape(22.dp)),
+            color = PureWhite,
+            shadowElevation = 6.dp
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp)
+                    .padding(18.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -87,16 +85,17 @@ fun VideoPlayerDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = clip.title,
-                            color = TextPrimary,
+                            color = TextTitle,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1
                         )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "${clip.gameName} • ${clip.durationSeconds}s • ${formatFileSize(clip.fileSizeBytes)}",
-                            color = ElectricCyan,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
+                            text = "${clip.gameName} • 长度 ${clip.durationSeconds}秒",
+                            color = PrimaryBlue,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
                         )
                     }
 
@@ -104,20 +103,19 @@ fun VideoPlayerDialog(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = TextSecondary
+                            tint = TextMuted
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(16f / 9f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(CyberBlack)
-                        .border(1.dp, CyberBorder, RoundedCornerShape(12.dp)),
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color.Black),
                     contentAlignment = Alignment.Center
                 ) {
                     if (videoFile.exists()) {
@@ -160,10 +158,10 @@ fun VideoPlayerDialog(
                             shareVideo(context, videoFile)
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = ElectricCyan,
-                            contentColor = CyberBlack
+                            containerColor = PrimaryBlue,
+                            contentColor = PureWhite
                         ),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))

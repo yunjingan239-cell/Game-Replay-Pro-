@@ -1,41 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-
-    <!-- Glowing Cyber Hexagon Badge / Shield -->
-    <path
-        android:fillColor="#1A2338"
-        android:strokeColor="#00E5FF"
-        android:strokeWidth="2.5"
-        android:pathData="M54,24 L78,38 L78,66 L54,80 L30,66 L30,38 Z" />
-
-    <!-- Replay Curved Arrow Path (Cyan) -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#00E5FF"
-        android:strokeWidth="3.5"
-        android:strokeLineCap="round"
-        android:pathData="M43,44 A15,15 0 1,1 40,62" />
-
-    <!-- Arrowhead at end of loop -->
-    <path
-        android:fillColor="#00E5FF"
-        android:pathData="M44,38 L43,47 L51,44 Z" />
-
-    <!-- Central Fast-Forward / Instant Replay Play Triangles (Cyber Purple & White) -->
-    <path
-        android:fillColor="#8A3FFC"
-        android:pathData="M48,46 L48,62 L60,54 Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M56,48 L56,60 L65,54 Z" />
-
-    <!-- Esports Accent Dot -->
-    <path
-        android:fillColor="#00E676"
-        android:pathData="M66,40 A3,3 0 1,1 60,40 A3,3 0 1,1 66,40 Z" />
-
-</vector>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:width="66dp"
+        android:height="66dp"
+        android:drawable="@drawable/img_replay_app_icon"
+        android:gravity="center" />
+</layer-list>

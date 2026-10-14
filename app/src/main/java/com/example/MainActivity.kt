@@ -12,6 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,18 +21,22 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -50,20 +55,20 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.local.ReplayClip
 import com.example.ui.screens.DashboardScreen
+import com.example.ui.screens.GameModeScreen
 import com.example.ui.screens.ReplayLibraryScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.VideoPlayerDialog
-import com.example.ui.theme.CyberBlack
-import com.example.ui.theme.CyberBorder
-import com.example.ui.theme.CyberSurfaceCard
-import com.example.ui.theme.CyberSurfaceDark
 import android.view.KeyEvent
 import android.widget.Toast
-import com.example.ui.theme.ElectricCyan
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.PrimaryBlue
+import com.example.ui.theme.PrimaryBlueLight
+import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.TextTitle
 import com.example.ui.viewmodel.ReplayViewModel
 
 class MainActivity : ComponentActivity() {
@@ -87,6 +92,13 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 GameReplayApp(viewModel)
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (viewModel.settings.value.floatingButtonEnabled && android.provider.Settings.canDrawOverlays(this)) {
+            com.example.service.FloatingOverlayService.start(this)
         }
     }
 
@@ -128,15 +140,25 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class NavigationTab(val title: String, val selectedIcon: ImageVector, val unselectedIcon: ImageVector) {
-    DASHBOARD("游戏回录", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
+    HOME("首页", Icons.Filled.Dashboard, Icons.Outlined.Dashboard),
     LIBRARY("视频库", Icons.Filled.Movie, Icons.Outlined.Movie),
-    SETTINGS("引擎设置", Icons.Filled.Settings, Icons.Outlined.Settings)
+    GAMEMODE("游戏模式", Icons.Filled.SportsEsports, Icons.Outlined.SportsEsports),
+    SETTINGS("设置", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 @Composable
 fun GameReplayApp(viewModel: ReplayViewModel) {
-    var currentTab by remember { mutableStateOf(NavigationTab.DASHBOARD) }
+    var currentTab by remember { mutableStateOf(NavigationTab.HOME) }
     var activePreviewClip by remember { mutableStateOf<ReplayClip?>(null) }
+    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+
+    androidx.activity.compose.BackHandler {
+        if (currentTab != NavigationTab.HOME) {
+            currentTab = NavigationTab.HOME
+        } else {
+            activity?.moveTaskToBack(true)
+        }
+    }
 
     val dashboardState by viewModel.dashboardState.collectAsState()
     val settings by viewModel.settings.collectAsState()
@@ -146,47 +168,54 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack),
+            .background(AppBackground),
         bottomBar = {
             // In Game Mode, automatically hide the bottom navigation bar to maximize gaming immersion
             if (!settings.isGameModeActive) {
-                NavigationBar(
-                    containerColor = CyberSurfaceDark,
-                    contentColor = ElectricCyan,
-                    tonalElevation = 8.dp,
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, CyberBorder)
-                        .navigationBarsPadding()
+                        .navigationBarsPadding(),
+                    color = PureWhite,
+                    shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                    shadowElevation = 10.dp,
+                    border = BorderStroke(1.dp, BorderSubtle)
                 ) {
-                    NavigationTab.entries.forEach { tab ->
-                        val isSelected = currentTab == tab
-                        NavigationBarItem(
-                            selected = isSelected,
-                            onClick = { currentTab = tab },
-                            icon = {
-                                Icon(
-                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.title,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = tab.title,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = CyberBlack,
-                                selectedTextColor = ElectricCyan,
-                                indicatorColor = ElectricCyan,
-                                unselectedIconColor = TextMuted,
-                                unselectedTextColor = TextMuted
-                            ),
-                            modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
-                        )
+                    NavigationBar(
+                        containerColor = PureWhite,
+                        contentColor = PrimaryBlue,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        NavigationTab.entries.forEach { tab ->
+                            val isSelected = currentTab == tab
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = { currentTab = tab },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.title,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = PrimaryBlue,
+                                    selectedTextColor = PrimaryBlue,
+                                    indicatorColor = PrimaryBlueLight,
+                                    unselectedIconColor = TextMuted,
+                                    unselectedTextColor = TextMuted
+                                ),
+                                modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                            )
+                        }
                     }
                 }
             }
@@ -195,7 +224,7 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(CyberBlack)
+                .background(AppBackground)
                 .statusBarsPadding()
                 .padding(innerPadding)
         ) {
@@ -204,10 +233,11 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                 label = "screen_crossfade"
             ) { tab ->
                 when (tab) {
-                    NavigationTab.DASHBOARD -> {
+                    NavigationTab.HOME -> {
                         DashboardScreen(
                             state = dashboardState,
                             settings = settings,
+                            recentClips = clips,
                             onStartReplay = { resultCode, resultData ->
                                 viewModel.startReplayEngine(resultCode, resultData)
                             },
@@ -228,7 +258,10 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                             },
                             onLaunchGame = { game ->
                                 viewModel.launchGameAndSelect(game)
-                            }
+                            },
+                            onNavigateToLibrary = { currentTab = NavigationTab.LIBRARY },
+                            onNavigateToGameMode = { currentTab = NavigationTab.GAMEMODE },
+                            onNavigateToSettings = { currentTab = NavigationTab.SETTINGS }
                         )
                     }
                     NavigationTab.LIBRARY -> {
@@ -246,6 +279,24 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                             },
                             onToggleFavorite = { clip ->
                                 viewModel.toggleFavorite(clip)
+                            }
+                        )
+                    }
+                    NavigationTab.GAMEMODE -> {
+                        GameModeScreen(
+                            settings = settings,
+                            detectedGames = dashboardState.detectedGames,
+                            onToggleGameMode = { enabled ->
+                                viewModel.updateSettings(settings.copy(isGameModeActive = enabled))
+                            },
+                            onSelectGame = { game ->
+                                viewModel.updateSettings(settings.copy(currentGameTitle = game))
+                            },
+                            onLaunchGame = { game ->
+                                viewModel.launchGameAndSelect(game)
+                            },
+                            onUpdateSettings = { newSettings ->
+                                viewModel.updateSettings(newSettings)
                             }
                         )
                     }

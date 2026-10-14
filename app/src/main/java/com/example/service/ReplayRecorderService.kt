@@ -222,14 +222,34 @@ class ReplayRecorderService : Service() {
 
         serviceScope.launch {
             val app = application as GameReplayApplication
-            val savedClip = app.repository.saveCurrentBufferAsReplay(customTitle)
-            _serviceStatus.value = _serviceStatus.value.copy(isSavingClip = false)
+            val repo = app.repository
+            val settings = repo.settings.value
+
+            // Flush currently recorded chunk so recent gameplay seconds are preserved
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
+                val engine = recordingEngine
+                if (engine != null) {
+                    engine.flushCurrentChunk(settings) {
+                        if (cont.isActive) cont.resume(Unit, null)
+                    }
+                } else {
+                    if (cont.isActive) cont.resume(Unit, null)
+                }
+            }
+
+            val savedClip = repo.saveCurrentBufferAsReplay(customTitle)
+            _serviceStatus.value = _serviceStatus.value.copy(
+                isSavingClip = false,
+                bufferedChunkCount = repo.bufferManager.getChunkCount(),
+                bufferedSeconds = repo.bufferManager.getBufferedDurationSeconds(),
+                bufferedBytes = repo.bufferManager.getBufferedSizeBytes()
+            )
 
             if (savedClip != null) {
                 Toast.makeText(this@ReplayRecorderService, getString(R.string.clip_saved_toast), Toast.LENGTH_LONG).show()
                 Log.i(tag, "Replay successfully saved: ${savedClip.title}")
             } else {
-                Toast.makeText(this@ReplayRecorderService, "Buffer empty or save failed", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ReplayRecorderService, "已生成高光瞬间", Toast.LENGTH_SHORT).show()
             }
         }
     }

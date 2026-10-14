@@ -6,7 +6,6 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,31 +19,30 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,30 +54,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.example.data.local.ReplayClip
 import com.example.ui.components.CyberCard
-import com.example.ui.components.StatChip
-import com.example.ui.theme.CyberBlack
-import com.example.ui.theme.CyberBorder
-import com.example.ui.theme.CyberBorderGlow
-import com.example.ui.theme.CyberPurple
-import com.example.ui.theme.CyberSurfaceCard
-import com.example.ui.theme.CyberSurfaceDark
-import com.example.ui.theme.CyberSurfaceElevated
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.NeonGreen
-import com.example.ui.theme.RadiantCrimson
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.BorderSubtle
+import com.example.ui.theme.PrimaryBlue
+import com.example.ui.theme.PrimaryBlueLight
+import com.example.ui.theme.PureWhite
+import com.example.ui.theme.SoftOrange
+import com.example.ui.theme.SoftOrangeBg
+import com.example.ui.theme.SoftRed
+import com.example.ui.theme.SoftRedBg
+import com.example.ui.theme.TextBody
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.TextTitle
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -119,11 +115,12 @@ fun ReplayLibraryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
+            .background(AppBackground)
             .padding(horizontal = 16.dp)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
+        // 1. Header Title & Storage Info
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -131,94 +128,105 @@ fun ReplayLibraryScreen(
         ) {
             Column {
                 Text(
-                    text = "REPLAY VAULT",
-                    color = ElectricCyan,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Black,
-                    letterSpacing = 1.sp
+                    text = "视频库",
+                    color = TextTitle,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "已保存的精彩瞬间 (${clips.size} 个视频 / $totalStorageFormatted)",
-                    color = TextSecondary,
+                    text = "已保存 ${clips.size} 个精彩瞬间 • 共占用 $totalStorageFormatted",
+                    color = TextMuted,
                     fontSize = 12.sp
                 )
             }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = PrimaryBlueLight,
+                border = BorderStroke(1.dp, BorderSubtle)
+            ) {
+                Text(
+                    text = "云相册排版",
+                    color = PrimaryBlue,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("library_search_input"),
-            placeholder = { Text("搜索精彩瞬间或游戏名称...", color = TextMuted, fontSize = 13.sp) },
-            leadingIcon = {
+        // 2. Search Bar (Clean White Pill)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            color = PureWhite,
+            shadowElevation = 1.dp,
+            border = BorderStroke(1.dp, BorderSubtle)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = "Search",
-                    tint = TextSecondary,
+                    tint = TextMuted,
                     modifier = Modifier.size(20.dp)
                 )
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = CyberSurfaceCard,
-                unfocusedContainerColor = CyberSurfaceCard,
-                focusedBorderColor = ElectricCyan,
-                unfocusedBorderColor = CyberBorder,
-                focusedTextColor = TextPrimary,
-                unfocusedTextColor = TextPrimary
-            )
-        )
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        TabRow(
-            selectedTabIndex = selectedTab,
-            containerColor = CyberBlack,
-            contentColor = ElectricCyan,
-            indicator = { tabPositions ->
-                TabRowDefaults.SecondaryIndicator(
-                    modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                    color = ElectricCyan,
-                    height = 2.dp
+                Spacer(modifier = Modifier.width(10.dp))
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("搜索精彩瞬间标题或游戏名称...", fontSize = 13.sp, color = TextMuted) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        cursorColor = PrimaryBlue,
+                        focusedTextColor = TextTitle,
+                        unfocusedTextColor = TextTitle
+                    ),
+                    singleLine = true
                 )
-            },
-            divider = {
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(CyberBorder))
             }
-        ) {
-            Tab(
-                selected = selectedTab == 0,
-                onClick = { selectedTab = 0 },
-                text = {
-                    Text(
-                        text = "全部回录 (${clips.size})",
-                        color = if (selectedTab == 0) ElectricCyan else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            )
-            Tab(
-                selected = selectedTab == 1,
-                onClick = { selectedTab = 1 },
-                text = {
-                    Text(
-                        text = "我的收藏 (${clips.count { it.isFavorite }})",
-                        color = if (selectedTab == 1) ElectricCyan else TextSecondary,
-                        fontSize = 13.sp,
-                        fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal
-                    )
-                }
-            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // 3. Category Filter Chips (Cloud photo album style)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val tabs = listOf("全部回录 (${clips.size})", "我的收藏 (${clips.count { it.isFavorite }})")
+            items(tabs.size) { index ->
+                val isSelected = selectedTab == index
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = if (isSelected) PrimaryBlue else PureWhite,
+                    border = BorderStroke(1.dp, if (isSelected) PrimaryBlue else BorderSubtle),
+                    modifier = Modifier
+                        .clickable { selectedTab = index }
+                        .testTag("library_filter_tab_$index")
+                ) {
+                    Text(
+                        text = tabs[index],
+                        color = if (isSelected) PureWhite else TextTitle,
+                        fontSize = 13.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4. Video Cards List
         if (filteredClips.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -226,35 +234,31 @@ fun ReplayLibraryScreen(
                     .padding(bottom = 60.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
                             .size(72.dp)
-                            .clip(CircleShape)
-                            .background(CyberSurfaceCard)
-                            .border(1.dp, CyberBorder, CircleShape),
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(PrimaryBlueLight),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Movie,
+                            imageVector = Icons.Default.Videocam,
                             contentDescription = "Empty",
-                            tint = TextMuted,
+                            tint = PrimaryBlue,
                             modifier = Modifier.size(36.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
                     Text(
-                        text = if (searchQuery.isNotEmpty()) "未找到相关回录视频" else "暂无保存的精彩瞬间",
-                        color = TextPrimary,
+                        text = if (searchQuery.isBlank()) "暂无保存的精彩瞬间" else "未找到匹配的回录视频",
+                        color = TextTitle,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "开启回录后，在游戏中点击悬浮按钮即可随时抓取回录",
+                        text = "开启回录后，在游戏中轻点悬浮按钮即可抓取并归档至此",
                         color = TextMuted,
                         fontSize = 12.sp
                     )
@@ -263,10 +267,10 @@ fun ReplayLibraryScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(filteredClips, key = { it.id }) { clip ->
-                    ReplayClipCard(
+                    ModernVideoCard(
                         clip = clip,
                         onPlay = { onPlayClip(clip) },
                         onShare = { shareClip(context, clip) },
@@ -274,96 +278,90 @@ fun ReplayLibraryScreen(
                             clipToRename = clip
                             renameInput = clip.title
                         },
-                        onDelete = {
-                            clipToDelete = clip
-                        },
+                        onDelete = { clipToDelete = clip },
                         onToggleFavorite = { onToggleFavorite(clip) }
                     )
                 }
                 item {
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(40.dp))
                 }
             }
         }
     }
 
+    // Rename Dialog
     clipToRename?.let { clip ->
         AlertDialog(
             onDismissRequest = { clipToRename = null },
-            containerColor = CyberSurfaceDark,
-            title = {
-                Text("修改视频名称", color = TextPrimary, fontWeight = FontWeight.Bold)
-            },
+            title = { Text("重命名回录片段", fontWeight = FontWeight.Bold, color = TextTitle) },
             text = {
                 OutlinedTextField(
                     value = renameInput,
                     onValueChange = { renameInput = it },
+                    label = { Text("视频文件名") },
                     singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = TextPrimary,
-                        unfocusedTextColor = TextPrimary,
-                        focusedBorderColor = ElectricCyan,
-                        unfocusedBorderColor = CyberBorder
-                    )
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (renameInput.isNotBlank()) {
-                            onUpdateTitle(clip.id, renameInput.trim())
+                            onUpdateTitle(clip.id, renameInput)
                         }
                         clipToRename = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan, contentColor = CyberBlack)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryBlue)
                 ) {
                     Text("保存")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { clipToRename = null }) {
-                    Text("取消", color = TextSecondary)
+                    Text("取消", color = TextMuted)
                 }
-            }
+            },
+            containerColor = PureWhite,
+            shape = RoundedCornerShape(20.dp)
         )
     }
 
+    // Delete Confirmation Dialog
     clipToDelete?.let { clip ->
         AlertDialog(
             onDismissRequest = { clipToDelete = null },
-            containerColor = CyberSurfaceDark,
-            title = {
-                Text("确认删除回录视频？", color = RadiantCrimson, fontWeight = FontWeight.Bold)
-            },
-            text = {
-                Text(
-                    text = "删除后文件将从手机存储中永久移除：\n${clip.title}",
-                    color = TextSecondary,
-                    fontSize = 13.sp
-                )
-            },
+            title = { Text("删除回录视频", fontWeight = FontWeight.Bold, color = TextTitle) },
+            text = { Text("确定要删除「${clip.title}」吗？此操作将永久清理该文件并释放存储空间。", color = TextBody) },
             confirmButton = {
                 Button(
                     onClick = {
                         onDeleteClip(clip)
                         clipToDelete = null
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = RadiantCrimson)
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = SoftRed)
                 ) {
-                    Text("删除", color = Color.White)
+                    Text("删除", color = PureWhite)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { clipToDelete = null }) {
-                    Text("取消", color = TextSecondary)
+                    Text("取消", color = TextMuted)
                 }
-            }
+            },
+            containerColor = PureWhite,
+            shape = RoundedCornerShape(20.dp)
         )
     }
 }
 
+/**
+ * Large modern video card (cloud photo app aesthetic).
+ */
 @Composable
-fun ReplayClipCard(
+fun ModernVideoCard(
     clip: ReplayClip,
     onPlay: () -> Unit,
     onShare: () -> Unit,
@@ -371,152 +369,165 @@ fun ReplayClipCard(
     onDelete: () -> Unit,
     onToggleFavorite: () -> Unit
 ) {
-    val dateFormatted = SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(clip.createdAt))
+    val durationFormatted = formatDuration(clip.durationSeconds)
     val sizeFormatted = formatFileSize(clip.fileSizeBytes)
+    val dateFormatted = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(clip.createdAt))
 
-    CyberCard {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("video_card_${clip.id}"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = PureWhite),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = BorderStroke(1.dp, BorderSubtle)
+    ) {
         Column(modifier = Modifier.fillMaxWidth()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = CyberPurple.copy(alpha = 0.2f),
-                        border = BorderStroke(1.dp, CyberPurple.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = clip.gameName,
-                            color = Color(0xFFD0BCFF),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    Text(
-                        text = clip.title,
-                        color = TextPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
-                    )
-                }
-
-                IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(32.dp).testTag("fav_btn_${clip.id}")
-                ) {
-                    Icon(
-                        imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (clip.isFavorite) RadiantCrimson else TextMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
+            // Video Thumbnail & Play Banner
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(130.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(CyberBlack)
-                    .border(1.dp, CyberBorder, RoundedCornerShape(8.dp))
-                    .clickable { onPlay() }
-                    .testTag("clip_preview_${clip.id}"),
+                    .height(140.dp)
+                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF1E293B),
+                                Color(0xFF0F172A)
+                            )
+                        )
+                    )
+                    .clickable { onPlay() },
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                // Play Icon Button
+                Box(
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(PrimaryBlue.copy(alpha = 0.9f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(ElectricCyan.copy(alpha = 0.25f))
-                            .border(1.dp, ElectricCyan, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play Video",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "点击播放预览",
-                        color = TextSecondary,
-                        fontSize = 11.sp
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Play",
+                        tint = PureWhite,
+                        modifier = Modifier.size(30.dp)
                     )
                 }
 
+                // Top Left: Game Name Badge
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = clip.gameName,
+                        color = PureWhite,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Bottom Right: Duration Badge (e.g. 00:45)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color(0xCC000000))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 ) {
                     Text(
-                        text = "${clip.durationSeconds}s",
-                        color = ElectricCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        text = durationFormatted,
+                        color = PureWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            // Info & Action Bar
+            Column(modifier = Modifier.padding(16.dp)) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    StatChip(label = "大小", value = sizeFormatted)
-                    StatChip(label = "规格", value = "${clip.fps}FPS")
-                }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = clip.title,
+                            color = TextTitle,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "$dateFormatted • $sizeFormatted • ${clip.resolution}",
+                            color = TextMuted,
+                            fontSize = 11.sp
+                        )
+                    }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onShare, modifier = Modifier.size(32.dp).testTag("share_btn_${clip.id}")) {
-                        Icon(Icons.Default.Share, contentDescription = "Share", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onRename, modifier = Modifier.size(32.dp).testTag("rename_btn_${clip.id}")) {
-                        Icon(Icons.Default.Edit, contentDescription = "Rename", tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp).testTag("delete_btn_${clip.id}")) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RadiantCrimson, modifier = Modifier.size(16.dp))
+                    // Action Icons Row
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onToggleFavorite, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (clip.isFavorite) SoftRed else TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = onShare, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = onRename, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.DriveFileRenameOutline,
+                                contentDescription = "Rename",
+                                tint = TextMuted,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Delete",
+                                tint = SoftRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            Text(
-                text = "录制于: $dateFormatted",
-                color = TextMuted,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
-            )
         }
+    }
+}
+
+private fun formatDuration(seconds: Int): String {
+    val mins = seconds / 60
+    val secs = seconds % 60
+    return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0) return "0 MB"
+    val mb = bytes.toDouble() / (1024 * 1024)
+    return if (mb >= 1024) {
+        String.format(Locale.getDefault(), "%.1f GB", mb / 1024)
+    } else {
+        String.format(Locale.getDefault(), "%.1f MB", mb)
     }
 }
 
@@ -529,22 +540,11 @@ private fun shareClip(context: Context, clip: ReplayClip) {
             "${context.packageName}.provider",
             file
         )
-
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
             type = "video/mp4"
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "分享游戏高光回录"))
+        context.startActivity(Intent.createChooser(shareIntent, "分享游戏精彩瞬间"))
     } catch (_: Exception) {}
-}
-
-fun formatFileSize(bytes: Long): String {
-    if (bytes <= 0) return "0 MB"
-    val mb = bytes / (1024.0 * 1024.0)
-    return if (mb >= 1024.0) {
-        String.format(Locale.getDefault(), "%.2f GB", mb / 1024.0)
-    } else {
-        String.format(Locale.getDefault(), "%.1f MB", mb)
-    }
 }

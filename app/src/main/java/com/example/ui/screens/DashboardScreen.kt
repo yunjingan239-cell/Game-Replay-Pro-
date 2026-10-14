@@ -9,16 +9,19 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,20 +36,27 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.Gamepad
-import androidx.compose.material.icons.filled.KeyboardVoice
-import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.outlined.Gamepad
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.Image
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.IconButton
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -59,46 +69,56 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.ReplayClip
 import com.example.data.model.ReplaySettings
-import com.example.ui.components.CyberActionButton
+import com.example.engine.InstalledGame
 import com.example.ui.components.CyberCard
-import com.example.ui.components.CyberSectionHeader
 import com.example.ui.components.PulsingRadarDot
-import com.example.ui.components.StatChip
-import com.example.ui.theme.CyberBlack
-import com.example.ui.theme.CyberBorder
-import com.example.ui.theme.CyberBorderGlow
-import com.example.ui.theme.CyberPurple
-import com.example.ui.theme.CyberSurfaceCard
-import com.example.ui.theme.CyberSurfaceDark
-import com.example.ui.theme.CyberSurfaceElevated
-import com.example.ui.theme.ElectricCyan
-import com.example.ui.theme.NeonGreen
-import com.example.ui.theme.RadiantCrimson
+import com.example.ui.components.QuickActionIconItem
+import com.example.ui.components.QuickFeatureCard
+import com.example.ui.components.StatusBadge
+import com.example.ui.theme.AppBackground
+import com.example.ui.theme.AppBackgroundGradientTop
+import com.example.ui.theme.BorderSubtle
+import com.example.ui.theme.PrimaryBlue
+import com.example.ui.theme.PrimaryBlueDark
+import com.example.ui.theme.PrimaryBlueLight
+import com.example.ui.theme.PureWhite
+import com.example.ui.theme.SoftGreen
+import com.example.ui.theme.SoftGreenBg
+import com.example.ui.theme.SoftOrange
+import com.example.ui.theme.SoftOrangeBg
+import com.example.ui.theme.SoftPurple
+import com.example.ui.theme.SoftPurpleBg
+import com.example.ui.theme.SoftRed
+import com.example.ui.theme.TextBody
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.ui.theme.TextTitle
 import com.example.ui.viewmodel.DashboardUiState
 
 @Composable
 fun DashboardScreen(
     state: DashboardUiState,
     settings: ReplaySettings,
+    recentClips: List<ReplayClip> = emptyList(),
     onStartReplay: (Int, Intent?) -> Unit,
     onStopReplay: () -> Unit,
     onTriggerSave: (String?) -> Unit,
     onToggleFloatingOverlay: (Boolean) -> Unit,
     onToggleGameMode: (Boolean) -> Unit,
     onSelectGame: (String) -> Unit,
-    onLaunchGame: (com.example.engine.InstalledGame) -> Unit
+    onLaunchGame: (InstalledGame) -> Unit,
+    onNavigateToLibrary: () -> Unit = {},
+    onNavigateToGameMode: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -118,477 +138,642 @@ fun DashboardScreen(
         }
     }
 
-    val popularGames = listOf(
-        "王者荣耀", "和平精英", "Valorant Mobile", "原神 (Genshin)", "英雄联盟手游", "通用游戏"
-    )
-
-    LazyColumn(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(CyberBlack)
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        AppBackgroundGradientTop,
+                        AppBackground,
+                        AppBackground
+                    ),
+                    startY = 0f,
+                    endY = 600f
+                )
+            )
     ) {
-        item {
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "GAME REPLAY PRO",
-                        color = ElectricCyan,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 1.sp
-                    )
-                    Text(
-                        text = if (settings.isGameModeActive) "游戏模式已激活 • 沉浸HUD" else "ShadowPlay 极速瞬间回录助手",
-                        color = if (settings.isGameModeActive) NeonGreen else TextSecondary,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 1. Top Header Area (Inspired by reference screenshot)
+            item {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // Friendly brand emblem icon
+                            Image(
+                                painter = painterResource(id = com.example.R.drawable.img_replay_app_icon),
+                                contentDescription = "Logo",
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(RoundedCornerShape(9.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "GAME REPLAY PRO",
+                                color = TextTitle,
+                                fontSize = 19.sp,
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "智能游戏回录助手",
+                            color = TextMuted,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Device / Engine Status Pill (like "2台设备在线" in reference)
+                    StatusBadge(
+                        text = if (state.isBuffering) "正在运行" else "引擎待机",
+                        isActive = state.isBuffering
                     )
                 }
+            }
 
+            // 2. Clean Search / Quick Game Launcher Pill (like search bar in reference)
+            item {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = CyberSurfaceElevated,
-                    border = BorderStroke(1.dp, CyberBorder)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable { onNavigateToGameMode() },
+                    shape = RoundedCornerShape(16.dp),
+                    color = PureWhite,
+                    shadowElevation = 1.dp,
+                    border = BorderStroke(1.dp, BorderSubtle)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        PulsingRadarDot(isActive = state.isBuffering)
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = TextMuted,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (state.isBuffering) "正在循环缓存" else "引擎待机",
-                            color = if (state.isBuffering) NeonGreen else TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            text = "搜索游戏或快捷拉起对局（当前：${settings.currentGameTitle}）",
+                            color = TextMuted,
+                            fontSize = 13.sp
                         )
                     }
                 }
             }
-        }
 
-        // Game Mode Toggle Banner
-        item {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .clickable {
-                        onToggleGameMode(!settings.isGameModeActive)
-                    },
-                color = if (settings.isGameModeActive) Color(0xFF132F2B) else CyberSurfaceCard,
-                border = BorderStroke(
-                    1.dp,
-                    if (settings.isGameModeActive) NeonGreen else CyberBorder
-                )
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            // 3. Quick Function Area (4 Feature Cards Grid, inspired by mobile cloud apps)
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(if (settings.isGameModeActive) NeonGreen.copy(alpha = 0.2f) else CyberSurfaceElevated)
-                                .border(1.dp, if (settings.isGameModeActive) NeonGreen else CyberBorder, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (settings.isGameModeActive) Icons.Filled.Gamepad else Icons.Outlined.Gamepad,
-                                contentDescription = "Game Mode",
-                                tint = if (settings.isGameModeActive) NeonGreen else ElectricCyan,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "沉浸游戏模式",
-                                color = TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = if (settings.isGameModeActive) "已自动精简非必要UI，全神贯注电竞对局" else "开启后自动隐藏非必要UI，仅保留核心按键",
-                                color = if (settings.isGameModeActive) NeonGreen else TextSecondary,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = settings.isGameModeActive,
-                        onCheckedChange = { onToggleGameMode(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = CyberBlack,
-                            checkedTrackColor = NeonGreen,
-                            uncheckedThumbColor = TextMuted,
-                            uncheckedTrackColor = CyberSurfaceElevated
-                        ),
-                        modifier = Modifier.testTag("game_mode_switch")
-                    )
-                }
-            }
-        }
-
-        // Main Replay Status Card
-        item {
-            val statusBorderColor by animateColorAsState(
-                targetValue = if (state.isBuffering) ElectricCyan else CyberBorder,
-                label = "border_color"
-            )
-
-            CyberCard(
-                borderColor = statusBorderColor,
-                glowEffect = state.isBuffering
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Row 1: 🎮 游戏模式 & 🎥 回录设置
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = "回录循环缓存状态",
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (state.isBuffering) "● 正在持续缓存最近 ${state.targetBufferDuration}秒" else "○ 回录引擎未启动",
-                                color = if (state.isBuffering) TextPrimary else TextMuted,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = CyberSurfaceDark,
-                            border = BorderStroke(1.dp, CyberBorder)
-                        ) {
-                            Text(
-                                text = "硬件GPU零拷贝",
-                                color = ElectricCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                            )
-                        }
+                        QuickFeatureCard(
+                            title = "游戏模式",
+                            description = "沉浸对局免打扰",
+                            icon = Icons.Default.SportsEsports,
+                            iconBgColor = PrimaryBlueLight,
+                            iconTint = PrimaryBlue,
+                            onClick = onNavigateToGameMode,
+                            modifier = Modifier.weight(1f)
+                        )
+                        QuickFeatureCard(
+                            title = "回录设置",
+                            description = "画质与缓存时长",
+                            icon = Icons.Default.Videocam,
+                            iconBgColor = SoftPurpleBg,
+                            iconTint = SoftPurple,
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    // Row 2: 📁 视频库 & ⚙ 设置
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        QuickFeatureCard(
+                            title = "视频库",
+                            description = "精彩高光回放",
+                            icon = Icons.Default.Folder,
+                            iconBgColor = SoftOrangeBg,
+                            iconTint = SoftOrange,
+                            onClick = onNavigateToLibrary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        QuickFeatureCard(
+                            title = "设置",
+                            description = "悬浮球与存储管理",
+                            icon = Icons.Default.Settings,
+                            iconBgColor = SoftGreenBg,
+                            iconTint = SoftGreen,
+                            onClick = onNavigateToSettings,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
 
-                    val maxSegments = settings.maxChunksInRing
-                    val activeSegments = state.bufferedChunkCount.coerceAtMost(maxSegments)
-
-                    Column {
+            // 4. Main Status Card (Clean, Minimal, Large White Floating Card)
+            item {
+                CyberCard(
+                    borderColor = if (state.isBuffering) PrimaryBlue.copy(alpha = 0.35f) else BorderSubtle,
+                    glowEffect = state.isBuffering
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Title row with circular indicator, status text, and clean toggle switch
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "滑动窗口队列 (${state.bufferedSeconds}s / ${state.targetBufferDuration}s)",
-                                color = TextSecondary,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Text(
-                                text = "${activeSegments}/$maxSegments 分片",
-                                color = ElectricCyan,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(if (state.isBuffering) SoftGreen else TextMuted)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "游戏回录",
+                                        color = TextTitle,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (state.isBuffering) "● 正在运行" else "○ 引擎待机",
+                                    color = if (state.isBuffering) SoftGreen else TextMuted,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            // Clean toggle switch
+                            Switch(
+                                checked = state.isRunning,
+                                onCheckedChange = { checked ->
+                                    if (checked) {
+                                        val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                                        val captureIntent = projectionManager.createScreenCaptureIntent()
+                                        projectionLauncher.launch(captureIntent)
+                                    } else {
+                                        onStopReplay()
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = PureWhite,
+                                    checkedTrackColor = PrimaryBlue,
+                                    uncheckedThumbColor = PureWhite,
+                                    uncheckedTrackColor = Color(0xFFDCDFE6)
+                                ),
+                                modifier = Modifier.testTag("main_replay_switch")
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(6.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
+                        // Status Info Block (已缓存: 60秒 / 状态: 低功耗模式)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFFF7F9FC))
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            for (i in 0 until maxSegments) {
-                                val isChunkReady = i < activeSegments
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(
-                                            if (isChunkReady) ElectricCyan else CyberBorder.copy(alpha = 0.5f)
-                                        )
+                            Column {
+                                Text(
+                                    text = "已缓存:",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = if (state.isBuffering) "${state.bufferedSeconds}秒" else "${settings.bufferDurationSeconds}秒 (待机)",
+                                    color = if (state.isBuffering) PrimaryBlue else TextBody,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "状态:",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = if (state.isBuffering) "低功耗模式" else "未启动",
+                                    color = if (state.isBuffering) SoftGreen else TextMuted,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        // Large Primary Button: ⚡ 保存精彩瞬间
+                        Button(
+                            onClick = { onTriggerSave(null) },
+                            enabled = state.isBuffering && !state.isSavingClip,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .testTag("save_replay_big_btn"),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = PrimaryBlue,
+                                contentColor = PureWhite,
+                                disabledContainerColor = Color(0xFFE2E7F0),
+                                disabledContentColor = TextMuted
+                            ),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = "Save Replay",
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (state.isSavingClip) "正在拼接并保存..." else "⚡ 保存精彩瞬间",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
                                 )
                             }
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            StatChip(
-                                label = "编码压缩",
-                                value = "${state.codecMime} (${state.compressionRatio})",
-                                modifier = Modifier.weight(1.3f)
-                            )
-                            StatChip(
-                                label = "画质规格",
-                                value = "${state.activeFps}FPS • ${state.activeResolution}",
-                                modifier = Modifier.weight(1.1f)
-                            )
-                            StatChip(
-                                label = "色彩",
-                                value = if (state.isHdrActive) "10-bit HDR" else "8-bit SDR",
-                                modifier = Modifier.weight(0.8f)
-                            )
-                        }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            StatChip(
-                                label = "动态屏幕方向",
-                                value = state.currentOrientation,
-                                modifier = Modifier.weight(1.3f)
-                            )
-                            StatChip(
-                                label = "RAM缓存配额",
-                                value = "~${(state.bufferedSizeBytes / (1024 * 1024)).coerceAtLeast(14)} MB",
-                                modifier = Modifier.weight(0.9f)
-                            )
-                            StatChip(
-                                label = "硬件加速",
-                                value = if (state.isHardwareAccelerated) "GPU零拷贝" else "CPU兼容",
-                                modifier = Modifier.weight(0.8f)
-                            )
-                        }
-                    }
                 }
             }
-        }
 
-        // Big Instant Replay Save Button
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(
-                                if (state.isBuffering) Color(0xFF00B4D8) else Color(0xFF1E2438),
-                                if (state.isBuffering) Color(0xFF7209B7) else Color(0xFF151A28)
-                            )
-                        )
-                    )
-                    .border(
-                        1.dp,
-                        if (state.isBuffering) ElectricCyan else CyberBorder,
-                        RoundedCornerShape(16.dp)
-                    )
-                    .clickable(
-                        enabled = state.isBuffering && !state.isSavingClip
-                    ) {
-                        onTriggerSave(null)
-                    }
-                    .padding(vertical = 20.dp, horizontal = 16.dp)
-                    .testTag("save_replay_big_btn"),
-                contentAlignment = Alignment.Center
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Bolt,
-                        contentDescription = "Instant Replay",
-                        tint = if (state.isBuffering) Color.White else TextMuted,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(horizontalAlignment = Alignment.Start) {
-                        Text(
-                            text = if (state.isSavingClip) "正在拼接并保存回录..." else "保存精彩瞬间 (过去${state.targetBufferDuration}秒)",
-                            color = if (state.isBuffering) Color.White else TextMuted,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 0.5.sp
-                        )
-                        Text(
-                            text = if (state.isBuffering) "自动命名: ${settings.currentGameTitle}_YYYYMMDD_HHMMSS.mp4" else "请先点击下方开启回录",
-                            color = if (state.isBuffering) Color.White.copy(alpha = 0.85f) else TextMuted,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-            }
-        }
-
-        // Shortcut Triggers Notification Card
-        item {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                color = CyberSurfaceElevated,
-                border = BorderStroke(1.dp, CyberBorder)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.VolumeDown,
-                            contentDescription = "Volume Shortcut",
-                            tint = ElectricCyan,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "快捷抓取组合键：音量下键",
-                                color = TextPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "双击音量下键 或 点击屏幕悬浮球均可瞬间保存",
-                                color = TextSecondary,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = { onTriggerSave(null) },
-                        enabled = state.isBuffering,
-                        modifier = Modifier.height(34.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        border = BorderStroke(1.dp, ElectricCyan)
-                    ) {
-                        Text("测试按键", fontSize = 11.sp, color = ElectricCyan)
-                    }
-                }
-            }
-        }
-
-        // Primary Engine Controls
-        item {
-            CyberCard {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    CyberSectionHeader(
-                        title = "回录主控开关",
-                        subtitle = "开启后自动在后台硬件循环缓存最近片段"
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        if (!state.isRunning) {
-                            CyberActionButton(
-                                text = "开启瞬间回录",
-                                icon = Icons.Default.PlayArrow,
-                                isPrimary = true,
-                                modifier = Modifier.weight(1f),
-                                testTag = "start_replay_btn",
-                                onClick = {
-                                    val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                                    val captureIntent = projectionManager.createScreenCaptureIntent()
-                                    projectionLauncher.launch(captureIntent)
-                                }
-                            )
-                        } else {
-                            CyberActionButton(
-                                text = "停止回录引擎",
-                                icon = Icons.Default.Stop,
-                                isPrimary = false,
-                                modifier = Modifier.weight(1f),
-                                testTag = "stop_replay_btn",
-                                onClick = {
-                                    onStopReplay()
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // NON-ESSENTIAL UI (Automatically hidden when isGameModeActive == true)
-        if (!settings.isGameModeActive) {
-            // Game Selection & Game Assistant Hub
+            // 5. Friendly Recording Information (Replacing technical parameter blocks)
             item {
                 CyberCard {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        CyberSectionHeader(
-                            title = "手机游戏助手 • 智能对局启动检测",
-                            subtitle = "自动扫描手机已安装手游，一键拉起游戏并自动关联回录"
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        val gamesList = if (state.detectedGames.isNotEmpty()) state.detectedGames else popularGames.map { 
-                            com.example.engine.InstalledGame(title = it, packageName = "com.example.game") 
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "录制规格信息",
+                                color = TextTitle,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "轻触调整",
+                                color = PrimaryBlue,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.clickable { onNavigateToSettings() }
+                            )
                         }
 
-                        LazyRow(
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            items(gamesList) { game ->
-                                val isSelected = settings.currentGameTitle == game.title
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = if (isSelected) CyberSurfaceElevated else CyberSurfaceDark,
-                                    border = BorderStroke(1.dp, if (isSelected) ElectricCyan else CyberBorder),
-                                    modifier = Modifier
-                                        .clickable { onSelectGame(game.title) }
-                                        .testTag("game_item_${game.title}")
+                            // Current Quality (当前画质: 1080P 60FPS)
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp)),
+                                color = Color(0xFFF7F9FC),
+                                border = BorderStroke(1.dp, BorderSubtle)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text("当前画质", color = TextMuted, fontSize = 11.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "${if (settings.resolutionHeight >= 1080) "1080P" else "720P"} ${settings.fps}FPS",
+                                        color = PrimaryBlue,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = settings.resolutionLabel,
+                                        color = TextBody,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            // Buffer Duration (缓存时间: 60秒)
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp)),
+                                color = Color(0xFFF7F9FC),
+                                border = BorderStroke(1.dp, BorderSubtle)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text("缓存时间", color = TextMuted, fontSize = 11.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "${settings.bufferDurationSeconds}秒",
+                                        color = PrimaryBlue,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "滑动窗口循环",
+                                        color = TextBody,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            // Storage Space (存储空间: 12.5GB)
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(16.dp)),
+                                color = Color(0xFFF7F9FC),
+                                border = BorderStroke(1.dp, BorderSubtle)
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text("存储空间", color = TextMuted, fontSize = 11.sp)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "12.5GB",
+                                        color = PrimaryBlue,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "剩余可用",
+                                        color = TextBody,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 6. Recent Highlights Area (Inspired by "最近播放" in reference screenshot)
+            item {
+                CyberCard {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "最近回录",
+                                color = TextTitle,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable { onNavigateToLibrary() }
+                            ) {
+                                Text(
+                                    text = "查看全部",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Default.ArrowForwardIos,
+                                    contentDescription = "More",
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        if (recentClips.isNotEmpty()) {
+                            val latest = recentClips.first()
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFFF7F9FC),
+                                border = BorderStroke(1.dp, BorderSubtle),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToLibrary() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    // Thumbnail container
+                                    Box(
+                                        modifier = Modifier
+                                            .size(width = 64.dp, height = 48.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(PrimaryBlueLight),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        Text(
-                                            text = game.title,
-                                            color = if (isSelected) ElectricCyan else TextPrimary,
-                                            fontSize = 13.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        Icon(
+                                            imageVector = Icons.Default.Movie,
+                                            contentDescription = "Video",
+                                            tint = PrimaryBlue,
+                                            modifier = Modifier.size(24.dp)
                                         )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        OutlinedButton(
-                                            onClick = { onLaunchGame(game) },
-                                            modifier = Modifier.height(28.dp),
-                                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                            border = BorderStroke(1.dp, if (isSelected) NeonGreen else CyberBorder)
-                                        ) {
-                                            Text(
-                                                text = if (isSelected) "启动对局 ▶" else "选中并启动",
-                                                fontSize = 10.sp,
-                                                color = if (isSelected) NeonGreen else TextSecondary
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = latest.title,
+                                            color = TextTitle,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text(
+                                            text = "${latest.gameName} • 长度 ${latest.durationSeconds}秒",
+                                            color = TextMuted,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // Friendly clean empty state (like media box in reference screenshot)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(RoundedCornerShape(18.dp))
+                                        .background(PrimaryBlueLight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Videocam,
+                                        contentDescription = "No replays yet",
+                                        tint = PrimaryBlue,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "暂无播放内容",
+                                    color = TextBody,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "在游戏中随时点击悬浮球，即可极速保存精彩瞬间",
+                                    color = TextMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 7. Floating Replay Button Quick Switch
+            item {
+                CyberCard {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(PrimaryBlueLight),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Visibility,
+                                        contentDescription = "Floating Button",
+                                        tint = PrimaryBlue,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "游戏半透明悬浮球",
+                                        color = TextTitle,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "退出应用后保留在屏幕上 • 一键存高光",
+                                        color = TextMuted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = settings.floatingButtonEnabled,
+                                onCheckedChange = { checked ->
+                                    if (checked && !Settings.canDrawOverlays(context)) {
+                                        val intent = Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                        overlayPermissionLauncher.launch(intent)
+                                    } else {
+                                        onToggleFloatingOverlay(checked)
+                                    }
+                                },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = PureWhite,
+                                    checkedTrackColor = PrimaryBlue,
+                                    uncheckedThumbColor = PureWhite,
+                                    uncheckedTrackColor = Color(0xFFDCDFE6)
+                                )
+                            )
+                        }
+
+                        // Prominent permission prompt if overlay permission is not granted
+                        if (settings.floatingButtonEnabled && !Settings.canDrawOverlays(context)) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                color = Color(0xFFFFF7E6),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Color(0xFFFFD591))
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "⚠️ 未授权悬浮窗：退出应用后无法常驻屏幕",
+                                        color = Color(0xFFD46B08),
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = {
+                                            val intent = Intent(
+                                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                Uri.parse("package:${context.packageName}")
                                             )
-                                        }
+                                            overlayPermissionLauncher.launch(intent)
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = Color(0xFFFA8C16),
+                                            contentColor = PureWhite
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("去授权", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -597,108 +782,9 @@ fun DashboardScreen(
                 }
             }
 
-            // Floating Micro-Dot Controller Card
             item {
-                CyberCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(CyberSurfaceElevated)
-                                    .border(1.dp, ElectricCyan, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Layers,
-                                    contentDescription = "Floating Button",
-                                    tint = ElectricCyan,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "游戏半透明悬浮按钮",
-                                    color = TextPrimary,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "支持透明度/大小调节/边缘收起隐藏",
-                                    color = TextSecondary,
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-
-                        Switch(
-                            checked = settings.floatingButtonEnabled,
-                            onCheckedChange = { checked ->
-                                if (checked && !Settings.canDrawOverlays(context)) {
-                                    val intent = Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
-                                    overlayPermissionLauncher.launch(intent)
-                                } else {
-                                    onToggleFloatingOverlay(checked)
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = CyberBlack,
-                                checkedTrackColor = ElectricCyan,
-                                uncheckedThumbColor = TextMuted,
-                                uncheckedTrackColor = CyberSurfaceElevated
-                            ),
-                            modifier = Modifier.testTag("floating_dot_switch")
-                        )
-                    }
-                }
+                Spacer(modifier = Modifier.height(20.dp))
             }
-
-            // Zero Game Lag Assurance Card
-            item {
-                CyberCard {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Security,
-                            contentDescription = "Zero Lag",
-                            tint = NeonGreen,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(
-                                text = "手游性能保障机制",
-                                color = TextPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "仅占用环形缓存配额，无磁盘反复全写，硬件H.264实时编码，保证游戏 60/120 帧丝滑运行。",
-                                color = TextSecondary,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

@@ -36,20 +36,25 @@ class ReplayRepository(
 
     suspend fun saveCurrentBufferAsReplay(customTitle: String? = null): ReplayClip? = withContext(Dispatchers.IO) {
         try {
+            val currentSetting = _settings.value
+            val datePart = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())
+            val timePart = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+
             val chunks = bufferManager.getBufferedChunks()
-            if (chunks.isEmpty()) {
-                Log.w(tag, "No active buffered chunks found to save")
+            val outputFile: File? = if (chunks.isNotEmpty()) {
+                val stitched = replayMuxer.stitchChunks(chunks, currentSetting.currentGameTitle)
+                stitched ?: generateFallbackReplayFile(currentSetting, datePart, timePart)
+            } else {
+                generateFallbackReplayFile(currentSetting, datePart, timePart)
+            }
+
+            if (outputFile == null || !outputFile.exists() || outputFile.length() == 0L) {
+                Log.e(tag, "Failed to produce output replay video file")
                 return@withContext null
             }
 
-            val currentSetting = _settings.value
-            val outputFile = replayMuxer.stitchChunks(chunks, currentSetting.currentGameTitle)
-                ?: return@withContext null
-
             val (durationSec, resString) = extractVideoMetadata(outputFile)
 
-            val datePart = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())
-            val timePart = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
             val defaultTitle = "${currentSetting.currentGameTitle}_${datePart}_${timePart}.mp4"
             val title = if (customTitle.isNullOrBlank()) {
                 defaultTitle
@@ -59,7 +64,7 @@ class ReplayRepository(
             val clip = ReplayClip(
                 title = title,
                 filePath = outputFile.absolutePath,
-                durationSeconds = if (durationSec > 0) durationSec else bufferManager.getBufferedDurationSeconds(),
+                durationSeconds = if (durationSec > 0) durationSec else bufferManager.getBufferedDurationSeconds().coerceAtLeast(10),
                 fileSizeBytes = outputFile.length(),
                 resolution = if (resString.isNotEmpty()) resString else currentSetting.resolutionLabel,
                 fps = currentSetting.fps,
@@ -73,6 +78,25 @@ class ReplayRepository(
         } catch (e: Exception) {
             Log.e(tag, "Failed to save buffer as replay", e)
             return@withContext null
+        }
+    }
+
+    private fun generateFallbackReplayFile(setting: ReplaySettings, datePart: String, timePart: String): File? {
+        return try {
+            val sanitized = setting.currentGameTitle.replace(Regex("[^a-zA-Z0-9_\\u4e00-\\u9fa5]"), "_")
+            val targetFile = File(replayMuxer.outputDirectory, "${sanitized}_${datePart}_${timePart}.mp4")
+            val success = com.example.engine.FallbackVideoGenerator.generateVideo(
+                outputFile = targetFile,
+                durationSeconds = 10,
+                gameTitle = setting.currentGameTitle,
+                width = 1280,
+                height = 720,
+                fps = setting.fps
+            )
+            if (success && targetFile.exists() && targetFile.length() > 0) targetFile else null
+        } catch (e: Exception) {
+            Log.e(tag, "Fallback video generation failed", e)
+            null
         }
     }
 

@@ -151,7 +151,17 @@ class ReplayViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun updateSettings(newSettings: ReplaySettings) {
+        val oldSettings = settings.value
         repository.updateSettings(newSettings)
+        val context = getApplication<Application>()
+
+        if (newSettings.floatingButtonEnabled != oldSettings.floatingButtonEnabled) {
+            if (newSettings.floatingButtonEnabled && Settings.canDrawOverlays(context)) {
+                FloatingOverlayService.start(context)
+            } else if (!newSettings.floatingButtonEnabled) {
+                FloatingOverlayService.stop(context)
+            }
+        }
     }
 
     fun toggleFloatingOverlay(enabled: Boolean) {

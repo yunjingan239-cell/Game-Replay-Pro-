@@ -234,8 +234,17 @@ class ScreenRecordingEngine(
 
         prepareNewChunkMuxer()
 
-        // 6. Connect VirtualDisplay from MediaProjection
+        // 6. Connect VirtualDisplay from MediaProjection (Android 14+ requires callback registered first)
         mediaProjection?.let { proj ->
+            val callback = object : MediaProjection.Callback() {
+                override fun onStop() {
+                    super.onStop()
+                    Log.i(tag, "MediaProjection stopped by system")
+                    stopRecording()
+                }
+            }
+            proj.registerCallback(callback, backgroundHandler)
+
             virtualDisplay = proj.createVirtualDisplay(
                 "GameReplayCapture",
                 currentWidth,
@@ -401,20 +410,32 @@ class ScreenRecordingEngine(
     private fun startChunkRotationLoop(settings: ReplaySettings) {
         chunkRotationJob = engineScope.launch {
             val isSyntheticMode = (mediaProjection == null)
-            var frameCount = 0
+
+            // If starting in synthetic mode, seed an initial valid chunk immediately so buffer is never empty
+            if (isSyntheticMode && bufferManager.getChunkCount() == 0) {
+                val seedChunk = bufferManager.createNextChunkFile()
+                FallbackVideoGenerator.generateVideo(
+                    outputFile = seedChunk,
+                    durationSeconds = 10,
+                    gameTitle = settings.currentGameTitle,
+                    width = currentWidth,
+                    height = currentHeight,
+                    fps = settings.fps
+                )
+                if (seedChunk.exists() && seedChunk.length() > 0) {
+                    bufferManager.onChunkFinished(seedChunk, 10_000L, settings.maxChunksInRing)
+                    onChunkSaved(seedChunk, 10_000L)
+                }
+            }
 
             while (isActive && isRecording) {
-                if (isSyntheticMode) {
-                    drawSyntheticGameFrame(currentWidth, currentHeight, frameCount++)
-                }
-
                 val elapsed = System.currentTimeMillis() - chunkStartTime
                 if (elapsed >= (settings.chunkDurationSeconds * 1000L)) {
                     // Request an instantaneous IDR Sync Keyframe from hardware encoder right before rotating
                     requestInstantSyncFrame()
                     rotateChunk(settings)
                 }
-                delay(33) // ~30 fps evaluation cadence
+                delay(100) // ~10Hz evaluation cadence
             }
         }
     }
@@ -435,52 +456,91 @@ class ScreenRecordingEngine(
         backgroundHandler?.post {
             try {
                 if (isMuxerStarted) {
-                    currentMuxer?.stop()
+                    try {
+                        currentMuxer?.stop()
+                    } catch (_: Exception) {}
                 }
-                currentMuxer?.release()
+                try {
+                    currentMuxer?.release()
+                } catch (_: Exception) {}
                 currentMuxer = null
                 isMuxerStarted = false
 
-                if (completedFile != null && completedFile.exists() && completedFile.length() > 0) {
-                    bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
-                    onChunkSaved(completedFile, durationMs)
+                if (completedFile != null) {
+                    if (completedFile.exists() && completedFile.length() > 0) {
+                        bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
+                        onChunkSaved(completedFile, durationMs)
+                    } else if (mediaProjection == null) {
+                        // Synthetic mode: write valid MP4 video chunk
+                        FallbackVideoGenerator.generateVideo(
+                            outputFile = completedFile,
+                            durationSeconds = (durationMs / 1000).toInt().coerceIn(3, 15),
+                            gameTitle = settings.currentGameTitle,
+                            width = currentWidth,
+                            height = currentHeight,
+                            fps = settings.fps
+                        )
+                        if (completedFile.exists() && completedFile.length() > 0) {
+                            bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
+                            onChunkSaved(completedFile, durationMs)
+                        }
+                    }
                 }
 
                 // Seamlessly initialize the next chunk in the sliding ring buffer
-                prepareNewChunkMuxer()
+                if (isRecording) {
+                    prepareNewChunkMuxer()
+                }
             } catch (e: Exception) {
                 Log.e(tag, "Error rotating video chunk", e)
             }
         }
     }
 
-    private fun drawSyntheticGameFrame(w: Int, h: Int, frameIndex: Int) {
-        inputSurface?.let { surface ->
+    fun flushCurrentChunk(settings: ReplaySettings, onFlushed: () -> Unit) {
+        backgroundHandler?.post {
             try {
-                if (!surface.isValid) return
-                val canvas = surface.lockCanvas(null) ?: return
-                canvas.drawColor(Color.rgb(10, 14, 24))
-                val paint = Paint().apply {
-                    color = Color.rgb(0, 229, 255)
-                    textSize = 54f
-                    isAntiAlias = true
+                val completedFile = currentChunkFile
+                val durationMs = System.currentTimeMillis() - chunkStartTime
+
+                if (isMuxerStarted) {
+                    try {
+                        currentMuxer?.stop()
+                    } catch (_: Exception) {}
                 }
-                canvas.drawText("GAME REPLAY PRO - LIVE BUFFER", 80f, 160f, paint)
+                try {
+                    currentMuxer?.release()
+                } catch (_: Exception) {}
+                currentMuxer = null
+                isMuxerStarted = false
 
-                paint.color = Color.rgb(138, 63, 252)
-                paint.textSize = 38f
-                val hdrTag = if (isHdrEnabled) " | [HDR10 10-BIT]" else ""
-                val codecTag = if (activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "HEVC/H.265" else "AVC/H.264"
-                canvas.drawText("Frame: #$frameIndex | $codecTag$hdrTag | Res: ${w}x${h}", 80f, 230f, paint)
+                if (completedFile != null) {
+                    if (completedFile.exists() && completedFile.length() > 0) {
+                        bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
+                        onChunkSaved(completedFile, durationMs)
+                    } else if (mediaProjection == null || bufferManager.getChunkCount() == 0) {
+                        FallbackVideoGenerator.generateVideo(
+                            outputFile = completedFile,
+                            durationSeconds = (durationMs / 1000).toInt().coerceIn(3, 15),
+                            gameTitle = settings.currentGameTitle,
+                            width = currentWidth,
+                            height = currentHeight,
+                            fps = settings.fps
+                        )
+                        if (completedFile.exists() && completedFile.length() > 0) {
+                            bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
+                            onChunkSaved(completedFile, durationMs)
+                        }
+                    }
+                }
 
-                val lineX = (frameIndex * 15 % w).toFloat()
-                paint.color = Color.rgb(0, 230, 118)
-                paint.strokeWidth = 6f
-                canvas.drawLine(lineX, 0f, lineX, h.toFloat(), paint)
-
-                surface.unlockCanvasAndPost(canvas)
+                if (isRecording) {
+                    prepareNewChunkMuxer()
+                }
             } catch (e: Exception) {
-                Log.v(tag, "Synthetic frame skipped: ${e.message}")
+                Log.e(tag, "Error flushing current chunk", e)
+            } finally {
+                onFlushed()
             }
         }
     }

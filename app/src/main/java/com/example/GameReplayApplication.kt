@@ -78,6 +78,7 @@ class GameReplayApplication : Application() {
     companion object {
         const val CHANNEL_ID_REPLAY = "channel_game_replay_pro"
         const val NOTIFICATION_ID_RECORDER = 9001
+        const val NOTIFICATION_ID_OVERLAY = 9002
 
         lateinit var instance: GameReplayApplication
             private set
