@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,7 +24,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
@@ -34,8 +37,11 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import android.widget.Toast
 import com.example.util.MediaExportHelper
+import com.example.util.VideoThumbnailView
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -160,41 +166,65 @@ fun ReplayLibraryScreen(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 2. Search Bar (Clean White Pill)
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = PureWhite,
-            shadowElevation = 1.dp,
-            border = BorderStroke(1.dp, BorderSubtle)
+        // 2. Search Bar (Clean Modern Capsule)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(PureWhite)
+                .border(1.dp, BorderSubtle, RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
                     imageVector = Icons.Default.Search,
                     contentDescription = "Search",
-                    tint = TextMuted,
-                    modifier = Modifier.size(20.dp)
+                    tint = if (searchQuery.isNotEmpty()) PrimaryBlue else TextMuted,
+                    modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("搜索精彩瞬间标题或游戏名称...", fontSize = 13.sp, color = TextMuted) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        cursorColor = PrimaryBlue,
-                        focusedTextColor = TextTitle,
-                        unfocusedTextColor = TextTitle
-                    ),
-                    singleLine = true
-                )
+                Box(
+                    modifier = Modifier.weight(1f),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (searchQuery.isEmpty()) {
+                        Text(
+                            text = "搜索精彩瞬间或游戏名称...",
+                            color = TextMuted,
+                            fontSize = 13.sp
+                        )
+                    }
+                    BasicTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        singleLine = true,
+                        textStyle = TextStyle(
+                            color = TextTitle,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        cursorBrush = SolidColor(PrimaryBlue),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (searchQuery.isNotEmpty()) {
+                    IconButton(
+                        onClick = { searchQuery = "" },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear",
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -280,9 +310,9 @@ fun ReplayLibraryScreen(
                             val file = File(clip.filePath)
                             val res = MediaExportHelper.saveVideoToGallery(context, file, clip.title)
                             if (res.isSuccess) {
-                                Toast.makeText(context, "✅ 已成功保存到系统相册 (Movies/GameReplay)", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
                             } else {
-                                Toast.makeText(context, "保存失败: ${res.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onShare = { shareClip(context, clip) },
@@ -402,18 +432,16 @@ fun ModernVideoCard(
                     .fillMaxWidth()
                     .height(140.dp)
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF1E293B),
-                                Color(0xFF0F172A)
-                            )
-                        )
-                    )
                     .clickable { onPlay() },
                 contentAlignment = Alignment.Center
             ) {
-                // Play Icon Button
+                // 1. Authentic Video Frame Thumbnail (instead of black background)
+                VideoThumbnailView(
+                    clip = clip,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                // 2. Play Icon Button
                 Box(
                     modifier = Modifier
                         .size(52.dp)

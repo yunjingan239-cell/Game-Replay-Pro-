@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VolumeDown
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -294,10 +296,10 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val codecs = listOf(
-                            Pair("HEVC", "HEVC (H.265 省流50%)"),
-                            Pair("AVC", "AVC (H.264 经典兼容)")
+                            Triple("HEVC", "HEVC (H.265)", "省流 50% • 推荐"),
+                            Triple("AVC", "AVC (H.264)", "全机型 • 经典兼容")
                         )
-                        codecs.forEach { (codecKey, label) ->
+                        codecs.forEach { (codecKey, title, sub) ->
                             val isSelected = settings.videoCodec.contains(codecKey, ignoreCase = true)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
@@ -307,16 +309,93 @@ fun SettingsScreen(
                                     .weight(1f)
                                     .clickable { onUpdateSettings(settings.copy(videoCodec = codecKey)) }
                             ) {
-                                Text(
-                                    text = label,
-                                    color = if (isSelected) PureWhite else TextTitle,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
+                                Column(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = title,
+                                        color = if (isSelected) PureWhite else TextTitle,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Spacer(modifier = Modifier.height(3.dp))
+                                    Text(
+                                        text = sub,
+                                        color = if (isSelected) PureWhite.copy(alpha = 0.9f) else TextMuted,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        maxLines = 1
+                                    )
+                                }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // Section: 音频录制 (Grouped Card)
+        item {
+            CyberCard {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SoftOrangeBg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.VolumeUp, contentDescription = "Audio", tint = SoftOrange, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("音频录制", color = TextTitle, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text("AAC 44.1kHz 高品质原声音频采集", color = TextMuted, fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Internal Game Audio Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("录制游戏原声 (内录系统声)", color = TextTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("通过系统级接口直接捕获游戏内战斗音效与BGM，无外界环境杂音", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = settings.internalAudioEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(internalAudioEnabled = it)) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = PrimaryBlue)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Microphone Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("录制麦克风 (解说/语音)", color = TextTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("开启后同时录入外部麦克风声音，适合游戏解说与开黑交流", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = settings.micAudioEnabled,
+                            onCheckedChange = { onUpdateSettings(settings.copy(micAudioEnabled = it)) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = PrimaryBlue)
+                        )
                     }
                 }
             }

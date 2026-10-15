@@ -59,7 +59,7 @@ class ReplayViewModel(application: Application) : AndroidViewModel(application) 
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ReplaySettings()
+            initialValue = repository.settings.value
         )
 
     val totalStorageUsed: StateFlow<Long?> = repository.totalStorageUsed

@@ -75,6 +75,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.ReplayClip
@@ -427,7 +428,7 @@ fun DashboardScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (state.isSavingClip) "正在拼接并保存..." else "⚡ 保存精彩瞬间",
+                                    text = if (state.isSavingClip) "请稍等..." else "⚡ 保存精彩瞬间",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 0.5.sp
@@ -468,52 +469,68 @@ fun DashboardScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Current Quality (当前画质: 1080P 60FPS)
+                            // Current Quality (画质规格: 1080P • 60FPS)
                             Surface(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(16.dp)),
+                                    .clip(RoundedCornerShape(14.dp)),
                                 color = Color(0xFFF7F9FC),
                                 border = BorderStroke(1.dp, BorderSubtle)
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text("当前画质", color = TextMuted, fontSize = 11.sp)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 12.dp)
+                                ) {
+                                    Text("画质规格", color = TextMuted, fontSize = 11.sp, maxLines = 1)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "${if (settings.resolutionHeight >= 1080) "1080P" else "720P"} ${settings.fps}FPS",
+                                        text = if (settings.resolutionHeight >= 1440) "2K 超清" else if (settings.resolutionHeight >= 1080) "1080P" else "720P",
                                         color = PrimaryBlue,
                                         fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = settings.resolutionLabel,
+                                        text = "${settings.fps}FPS • 原生",
                                         color = TextBody,
-                                        fontSize = 11.sp
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
 
-                            // Buffer Duration (缓存时间: 60秒)
+                            // Buffer Duration (回录缓冲: 60秒)
                             Surface(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(16.dp)),
+                                    .clip(RoundedCornerShape(14.dp)),
                                 color = Color(0xFFF7F9FC),
                                 border = BorderStroke(1.dp, BorderSubtle)
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text("缓存时间", color = TextMuted, fontSize = 11.sp)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 12.dp)
+                                ) {
+                                    Text("回录缓冲", color = TextMuted, fontSize = 11.sp, maxLines = 1)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = "${settings.bufferDurationSeconds}秒",
                                         color = PrimaryBlue,
                                         fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "滑动窗口循环",
+                                        text = "滑动循环守护",
                                         color = TextBody,
-                                        fontSize = 11.sp
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -522,23 +539,31 @@ fun DashboardScreen(
                             Surface(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .clip(RoundedCornerShape(16.dp)),
+                                    .clip(RoundedCornerShape(14.dp)),
                                 color = Color(0xFFF7F9FC),
                                 border = BorderStroke(1.dp, BorderSubtle)
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text("存储空间", color = TextMuted, fontSize = 11.sp)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 12.dp)
+                                ) {
+                                    Text("存储空间", color = TextMuted, fontSize = 11.sp, maxLines = 1)
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
                                         text = "12.5GB",
                                         color = PrimaryBlue,
                                         fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
+                                    Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = "剩余可用",
                                         color = TextBody,
-                                        fontSize = 11.sp
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }

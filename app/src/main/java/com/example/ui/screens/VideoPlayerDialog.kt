@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -74,6 +75,7 @@ import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextTitle
 import com.example.util.MediaExportHelper
+import com.example.util.VideoThumbnailView
 import kotlinx.coroutines.delay
 import java.io.File
 import java.lang.ref.WeakReference
@@ -215,6 +217,12 @@ fun VideoPlayerDialog(
                         },
                     contentAlignment = Alignment.Center
                 ) {
+                    // Video Thumbnail Preview Backdrop
+                    VideoThumbnailView(
+                        clip = clip,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
                     if (videoFile.exists()) {
                         AndroidView(
                             factory = { ctx ->
@@ -413,9 +421,9 @@ fun VideoPlayerDialog(
                                 )
                                 if (result.isSuccess) {
                                     isSavedToGallery = true
-                                    Toast.makeText(context, "✅ 已成功保存到系统相册 (Movies/GameReplay)", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
                                 } else {
-                                    Toast.makeText(context, "保存失败: ${result.exceptionOrNull()?.message}", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },

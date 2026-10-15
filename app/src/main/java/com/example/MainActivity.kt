@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
             if (now - lastVolumeDownTimestamp < 650) {
                 // Double tap Volume Down detected!
                 viewModel.triggerSaveReplay()
-                Toast.makeText(this, "【音量键快捷触发】已保存过去${currentSettings.bufferDurationSeconds}秒精彩瞬间！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "请稍等", Toast.LENGTH_SHORT).show()
                 lastVolumeDownTimestamp = 0L
                 return true
             }

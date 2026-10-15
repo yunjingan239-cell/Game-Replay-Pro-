@@ -111,46 +111,40 @@ class ReplayMuxer(private val context: Context) {
 
                 if (videoTrackSourceIndex != -1) {
                     extractor.selectTrack(videoTrackSourceIndex)
-                    while (true) {
-                        val sampleSize = extractor.readSampleData(byteBuffer, 0)
-                        if (sampleSize < 0) break
+                }
+                if (audioTrackSourceIndex != -1 && muxerAudioTrack != -1) {
+                    extractor.selectTrack(audioTrackSourceIndex)
+                }
 
-                        val currentPtsUs = extractor.sampleTime
+                while (true) {
+                    val sampleTrackIndex = extractor.sampleTrackIndex
+                    if (sampleTrackIndex < 0) break
+
+                    val sampleSize = extractor.readSampleData(byteBuffer, 0)
+                    if (sampleSize < 0) break
+
+                    val currentPtsUs = extractor.sampleTime
+                    val flags = extractor.sampleFlags
+
+                    bufferInfo.offset = 0
+                    bufferInfo.size = sampleSize
+                    bufferInfo.flags = flags
+
+                    if (sampleTrackIndex == videoTrackSourceIndex) {
                         if (currentPtsUs > chunkMaxVideoPtsUs) {
                             chunkMaxVideoPtsUs = currentPtsUs
                         }
-
-                        bufferInfo.offset = 0
-                        bufferInfo.size = sampleSize
                         bufferInfo.presentationTimeUs = globalVideoPtsOffsetUs + currentPtsUs
-                        bufferInfo.flags = extractor.sampleFlags
-
                         muxer.writeSampleData(muxerVideoTrack, byteBuffer, bufferInfo)
-                        extractor.advance()
-                    }
-                    extractor.unselectTrack(videoTrackSourceIndex)
-                }
-
-                if (audioTrackSourceIndex != -1 && muxerAudioTrack != -1) {
-                    extractor.selectTrack(audioTrackSourceIndex)
-                    while (true) {
-                        val sampleSize = extractor.readSampleData(byteBuffer, 0)
-                        if (sampleSize < 0) break
-
-                        val currentPtsUs = extractor.sampleTime
+                    } else if (sampleTrackIndex == audioTrackSourceIndex && muxerAudioTrack != -1) {
                         if (currentPtsUs > chunkMaxAudioPtsUs) {
                             chunkMaxAudioPtsUs = currentPtsUs
                         }
-
-                        bufferInfo.offset = 0
-                        bufferInfo.size = sampleSize
                         bufferInfo.presentationTimeUs = globalAudioPtsOffsetUs + currentPtsUs
-                        bufferInfo.flags = extractor.sampleFlags
-
                         muxer.writeSampleData(muxerAudioTrack, byteBuffer, bufferInfo)
-                        extractor.advance()
                     }
-                    extractor.unselectTrack(audioTrackSourceIndex)
+
+                    extractor.advance()
                 }
 
                 globalVideoPtsOffsetUs += (chunkMaxVideoPtsUs + 33_333L)

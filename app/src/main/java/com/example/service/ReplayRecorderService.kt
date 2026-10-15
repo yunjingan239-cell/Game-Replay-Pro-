@@ -218,7 +218,7 @@ class ReplayRecorderService : Service() {
     private fun saveReplayClip(customTitle: String?) {
         vibratePhone()
         _serviceStatus.value = _serviceStatus.value.copy(isSavingClip = true)
-        Toast.makeText(this, getString(R.string.saving_clip_notification), Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "请稍等", Toast.LENGTH_SHORT).show()
 
         serviceScope.launch {
             val app = application as GameReplayApplication
@@ -246,10 +246,10 @@ class ReplayRecorderService : Service() {
             )
 
             if (savedClip != null) {
-                Toast.makeText(this@ReplayRecorderService, getString(R.string.clip_saved_toast), Toast.LENGTH_LONG).show()
+                Toast.makeText(this@ReplayRecorderService, "保存成功", Toast.LENGTH_SHORT).show()
                 Log.i(tag, "Replay successfully saved: ${savedClip.title}")
             } else {
-                Toast.makeText(this@ReplayRecorderService, "🎉 精彩瞬间已保存！", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ReplayRecorderService, "保存失败", Toast.LENGTH_SHORT).show()
             }
         }
     }

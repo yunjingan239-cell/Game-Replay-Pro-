@@ -27,11 +27,12 @@ class ReplayRepository(
     val totalStorageUsed: Flow<Long?> = replayDao.getTotalStorageUsed()
     val totalClipsCount: Flow<Int> = replayDao.getTotalClipsCount()
 
-    private val _settings = MutableStateFlow(ReplaySettings())
+    private val _settings = MutableStateFlow(ReplaySettings.load(context))
     val settings = _settings.asStateFlow()
 
     fun updateSettings(newSettings: ReplaySettings) {
         _settings.value = newSettings
+        ReplaySettings.save(context, newSettings)
     }
 
     suspend fun saveCurrentBufferAsReplay(customTitle: String? = null): ReplayClip? = withContext(Dispatchers.IO) {

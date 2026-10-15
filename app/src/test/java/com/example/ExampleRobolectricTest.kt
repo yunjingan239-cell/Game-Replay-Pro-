@@ -34,7 +34,26 @@ class ExampleRobolectricTest {
     val settings = com.example.data.model.ReplaySettings()
     assertEquals(60, settings.bufferDurationSeconds)
     assertEquals(60, settings.fps)
-    assertEquals("1080p (FHD)", settings.resolutionLabel)
+    assertEquals("原生屏幕对齐 (完整无裁切 - 推荐)", settings.resolutionLabel)
     org.junit.Assert.assertTrue(settings.floatingButtonEnabled)
+  }
+
+  @Test
+  fun `replay settings persistence`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val customSettings = com.example.data.model.ReplaySettings(
+      bufferDurationSeconds = 120,
+      fps = 90,
+      bitrateMbps = 24,
+      currentGameTitle = "原神",
+      micAudioEnabled = true
+    )
+    com.example.data.model.ReplaySettings.save(context, customSettings)
+    val loaded = com.example.data.model.ReplaySettings.load(context)
+    assertEquals(120, loaded.bufferDurationSeconds)
+    assertEquals(90, loaded.fps)
+    assertEquals(24, loaded.bitrateMbps)
+    assertEquals("原神", loaded.currentGameTitle)
+    org.junit.Assert.assertTrue(loaded.micAudioEnabled)
   }
 }

@@ -6,6 +6,6 @@
     <string name="notification_text">正在循环记录最新游戏画面，轻触悬浮球即可一键保存精彩高光</string>
     <string name="notification_action_save">保存精彩瞬间</string>
     <string name="notification_action_stop">停止回录引擎</string>
-    <string name="saving_clip_notification">⚡ 正在提取并生成精彩瞬间回录...</string>
-    <string name="clip_saved_toast">🎉 精彩瞬间已成功保存！可前往相册或视频库查看</string>
+    <string name="saving_clip_notification">请稍等</string>
+    <string name="clip_saved_toast">保存成功</string>
 </resources>
