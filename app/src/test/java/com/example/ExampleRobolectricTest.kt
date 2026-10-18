@@ -46,7 +46,11 @@ class ExampleRobolectricTest {
       fps = 90,
       bitrateMbps = 24,
       currentGameTitle = "原神",
-      micAudioEnabled = true
+      micAudioEnabled = true,
+      isProMember = true,
+      proPlanName = "终身典藏版",
+      batterySaverVbr = true,
+      gamePriorityShield = true
     )
     com.example.data.model.ReplaySettings.save(context, customSettings)
     val loaded = com.example.data.model.ReplaySettings.load(context)
@@ -55,5 +59,9 @@ class ExampleRobolectricTest {
     assertEquals(24, loaded.bitrateMbps)
     assertEquals("原神", loaded.currentGameTitle)
     org.junit.Assert.assertTrue(loaded.micAudioEnabled)
+    org.junit.Assert.assertTrue(loaded.isProMember)
+    assertEquals("终身典藏版", loaded.proPlanName)
+    org.junit.Assert.assertTrue(loaded.batterySaverVbr)
+    org.junit.Assert.assertTrue(loaded.gamePriorityShield)
   }
 }

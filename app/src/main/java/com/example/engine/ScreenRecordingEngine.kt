@@ -84,12 +84,18 @@ class ScreenRecordingEngine(
     private var cachedVideoOutputFormat: MediaFormat? = null
     private var cachedAudioOutputFormat: MediaFormat? = null
 
+    // PTS Normalization per chunk to guarantee synchronous zero-based video & audio playback
+    private var chunkBasePtsUs: Long = -1L
+    private var lastChunkVideoPtsUs: Long = 0L
+    private var lastChunkAudioPtsUs: Long = 0L
+
     private var handlerThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
 
     private var chunkRotationJob: Job? = null
     private val engineScope = CoroutineScope(Dispatchers.Default)
 
+    private var currentSettings: ReplaySettings? = null
     private var chunkStartTime = 0L
     private var encoderName = "Hardware HEVC Encoder"
     private var isHwAccelerated = true
@@ -108,10 +114,12 @@ class ScreenRecordingEngine(
         }
 
         this.mediaProjection = projection
+        this.currentSettings = settings
         isRecording = true
 
-        // Use URGENT_DISPLAY thread priority to protect against frame drops when game CPU spikes
-        handlerThread = HandlerThread("ReplayEngineThread", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply {
+        // Isolate thread priority so the game UI & 3D render thread gets 100% core scheduling
+        val threadPriority = if (settings.gamePriorityShield) Process.THREAD_PRIORITY_BACKGROUND else Process.THREAD_PRIORITY_DEFAULT
+        handlerThread = HandlerThread("ReplayEngineThread", threadPriority).apply {
             start()
         }
         backgroundHandler = Handler(handlerThread!!.looper)
@@ -146,6 +154,14 @@ class ScreenRecordingEngine(
             onAudioSampleAvailable = { buffer, bufferInfo ->
                 synchronized(muxerLock) {
                     if (isMuxerStarted && audioTrackIndex != -1 && currentMuxer != null) {
+                        if (chunkBasePtsUs == -1L) {
+                            chunkBasePtsUs = bufferInfo.presentationTimeUs
+                        }
+                        val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBasePtsUs).coerceAtLeast(0L)
+                        val finalPtsUs = maxOf(lastChunkAudioPtsUs, relativePtsUs)
+                        lastChunkAudioPtsUs = finalPtsUs
+                        bufferInfo.presentationTimeUs = finalPtsUs
+
                         try {
                             currentMuxer?.writeSampleData(audioTrackIndex, buffer, bufferInfo)
                         } catch (e: Exception) {
@@ -422,6 +438,9 @@ class ScreenRecordingEngine(
                 isMuxerStarted = false
                 videoTrackIndex = -1
                 audioTrackIndex = -1
+                chunkBasePtsUs = -1L
+                lastChunkVideoPtsUs = 0L
+                lastChunkAudioPtsUs = 0L
                 chunkStartTime = System.currentTimeMillis()
 
                 tryStartMuxerIfReady()
@@ -473,6 +492,14 @@ class ScreenRecordingEngine(
                             val outputBuffer = encoder.getOutputBuffer(outputBufferIndex)
                             synchronized(muxerLock) {
                                 if (outputBuffer != null && bufferInfo.size > 0 && isMuxerStarted && videoTrackIndex != -1 && currentMuxer != null) {
+                                    if (chunkBasePtsUs == -1L) {
+                                        chunkBasePtsUs = bufferInfo.presentationTimeUs
+                                    }
+                                    val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBasePtsUs).coerceAtLeast(0L)
+                                    val finalPtsUs = maxOf(lastChunkVideoPtsUs, relativePtsUs)
+                                    lastChunkVideoPtsUs = finalPtsUs
+                                    bufferInfo.presentationTimeUs = finalPtsUs
+
                                     outputBuffer.position(bufferInfo.offset)
                                     outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
                                     try {
@@ -524,7 +551,7 @@ class ScreenRecordingEngine(
                     requestInstantSyncFrame()
                     rotateChunk(settings)
                 }
-                delay(100) // ~10Hz evaluation cadence
+                delay(if (settings.batterySaverVbr) 500L else 200L) // Energy-efficient evaluation cadence saving CPU wakeups
             }
         }
     }

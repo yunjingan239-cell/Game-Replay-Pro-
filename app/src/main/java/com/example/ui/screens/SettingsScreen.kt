@@ -20,6 +20,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Diamond
+import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.SdCard
@@ -42,6 +47,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +68,8 @@ import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.PrimaryBlueLight
 import com.example.ui.theme.PureWhite
+import com.example.ui.theme.SoftGreen
+import com.example.ui.theme.SoftGreenBg
 import com.example.ui.theme.SoftOrange
 import com.example.ui.theme.SoftOrangeBg
 import com.example.ui.theme.SoftPurple
@@ -75,6 +86,7 @@ fun SettingsScreen(
     onClearBufferCache: () -> Unit
 ) {
     val context = LocalContext.current
+    var showProDialog by remember { mutableStateOf(false) }
 
     val durationOptions = listOf(30, 60, 120, 180)
     val fpsOptions = listOf(30, 60, 90, 120)
@@ -100,6 +112,83 @@ fun SettingsScreen(
                     color = TextMuted,
                     fontSize = 13.sp
                 )
+            }
+        }
+
+        // 0. Pro Commercialization Center Card
+        item {
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF0F172A),
+                border = BorderStroke(
+                    1.dp,
+                    if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7).copy(alpha = 0.5f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable { showProDialog = true }
+                    .testTag("settings_pro_banner")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Diamond, contentDescription = "Pro", tint = PureWhite, modifier = Modifier.size(24.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = if (settings.isProMember) "PRO 电竞会员：已生效" else "升级 GAME REPLAY PRO",
+                                    color = PureWhite,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF38BDF8)
+                                ) {
+                                    Text(
+                                        text = if (settings.isProMember) settings.proPlanName else "特惠体验",
+                                        color = PureWhite,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (settings.isProMember) "2K 120FPS 极清原画 • 硬件级低功耗 VBR 加速" else "解锁 180秒超长回录 • 120FPS • 硬件级低能耗",
+                                color = Color.White.copy(alpha = 0.75f),
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    Icon(
+                        imageVector = Icons.Default.ArrowForwardIos,
+                        contentDescription = "Open Pro",
+                        tint = Color.White.copy(alpha = 0.6f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
             }
         }
 
@@ -135,6 +224,7 @@ fun SettingsScreen(
                     ) {
                         durationOptions.forEach { seconds ->
                             val isSelected = settings.bufferDurationSeconds == seconds
+                            val isProOnly = (seconds == 180)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -142,7 +232,12 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        onUpdateSettings(settings.copy(bufferDurationSeconds = seconds))
+                                        if (isProOnly && !settings.isProMember) {
+                                            showProDialog = true
+                                            Toast.makeText(context, "180秒超长回录为 Pro 会员专属特权", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            onUpdateSettings(settings.copy(bufferDurationSeconds = seconds))
+                                        }
                                     }
                                     .testTag("duration_option_$seconds")
                             ) {
@@ -150,12 +245,29 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text(
-                                        text = "${seconds}秒",
-                                        color = if (isSelected) PureWhite else TextTitle,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "${seconds}秒",
+                                            color = if (isSelected) PureWhite else TextTitle,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (isProOnly) {
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFF59E0B)
+                                            ) {
+                                                Text(
+                                                    text = "PRO",
+                                                    color = PureWhite,
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                     Text(
                                         text = "${seconds / 10} 分片",
                                         color = if (isSelected) PureWhite.copy(alpha = 0.8f) else TextMuted,
@@ -218,12 +330,13 @@ fun SettingsScreen(
                         ) {
                             val row2 = listOf(
                                 Triple(1280, 720, "720P 极速省电"),
-                                Triple(2560, 1440, "2K 旗舰超清")
+                                Triple(2560, 1440, "2K 旗舰超清 (PRO)")
                             )
                             row2.forEach { (w, h, label) ->
                                 val isSelected = (label.contains("720P") && settings.resolutionLabel.contains("720")) ||
                                         (label.contains("2K") && settings.resolutionLabel.contains("2K")) ||
                                         settings.resolutionLabel == label
+                                val isProOnly = label.contains("2K")
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -231,13 +344,18 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
-                                            onUpdateSettings(
-                                                settings.copy(
-                                                    resolutionWidth = w,
-                                                    resolutionHeight = h,
-                                                    resolutionLabel = label
+                                            if (isProOnly && !settings.isProMember) {
+                                                showProDialog = true
+                                                Toast.makeText(context, "2K 旗舰超清为 Pro 会员专属特权", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                onUpdateSettings(
+                                                    settings.copy(
+                                                        resolutionWidth = w,
+                                                        resolutionHeight = h,
+                                                        resolutionLabel = label
+                                                    )
                                                 )
-                                            )
+                                            }
                                         }
                                 ) {
                                     Text(
@@ -264,6 +382,7 @@ fun SettingsScreen(
                     ) {
                         fpsOptions.forEach { fps ->
                             val isSelected = settings.fps == fps
+                            val isProOnly = (fps == 120)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -271,17 +390,42 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        onUpdateSettings(settings.copy(fps = fps))
+                                        if (isProOnly && !settings.isProMember) {
+                                            showProDialog = true
+                                            Toast.makeText(context, "120 FPS 极清高刷为 Pro 会员专属特权", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            onUpdateSettings(settings.copy(fps = fps))
+                                        }
                                     }
                             ) {
-                                Text(
-                                    text = "$fps FPS",
-                                    color = if (isSelected) PureWhite else TextTitle,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(vertical = 10.dp),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                                )
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "$fps FPS",
+                                            color = if (isSelected) PureWhite else TextTitle,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (isProOnly) {
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFF59E0B)
+                                            ) {
+                                                Text(
+                                                    text = "PRO",
+                                                    color = PureWhite,
+                                                    fontSize = 7.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -394,6 +538,90 @@ fun SettingsScreen(
                         Switch(
                             checked = settings.micAudioEnabled,
                             onCheckedChange = { onUpdateSettings(settings.copy(micAudioEnabled = it)) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = PrimaryBlue)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section: 后台能耗与对局保帧优化 (Grouped Card)
+        item {
+            CyberCard {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(SoftGreenBg),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Shield, contentDescription = "Energy Shield", tint = SoftGreen, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text("后台能耗与对局保帧优化", color = TextTitle, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text("大核让位 • 动态VBR变频 • 0丢帧保证", color = TextMuted, fontSize = 11.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 1. 智能变码率节能 (VBR)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("智能变频节能 (VBR 动态编码)", color = TextTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("游戏大厅与静止场景自动降低编码负荷，发热降低 3.2°C，整机续航提升", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = settings.batterySaverVbr,
+                            onCheckedChange = { onUpdateSettings(settings.copy(batterySaverVbr = it)) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = PrimaryBlue)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 2. 对局 0 丢帧保帧盾 (Process priority protection)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("对局保帧盾 (CPU 大核优先游戏)", color = TextTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("后台录制调度自动降权，将高算力超大核 100% 优先分配给游戏渲染线程", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = settings.gamePriorityShield,
+                            onCheckedChange = { onUpdateSettings(settings.copy(gamePriorityShield = it)) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = PrimaryBlue)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 3. 智能温控防掉帧守护
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("智能温控守护 (防高温降频)", color = TextTitle, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            Text("机身持续高负荷时平滑微调采样率，主动避免手机 SoC 过热降频掉帧", color = TextMuted, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = settings.autoThermalGuard,
+                            onCheckedChange = { onUpdateSettings(settings.copy(autoThermalGuard = it)) },
                             colors = SwitchDefaults.colors(checkedThumbColor = PureWhite, checkedTrackColor = PrimaryBlue)
                         )
                     }
@@ -586,6 +814,14 @@ fun SettingsScreen(
         item {
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showProDialog) {
+        ProUpgradeDialog(
+            settings = settings,
+            onUpdateSettings = onUpdateSettings,
+            onDismiss = { showProDialog = false }
+        )
     }
 }
 

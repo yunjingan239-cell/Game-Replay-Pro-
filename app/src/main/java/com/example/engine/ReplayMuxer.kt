@@ -8,8 +8,6 @@ import android.media.MediaMuxer
 import android.os.Environment
 import android.util.Log
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -41,22 +39,7 @@ class ReplayMuxer(private val context: Context) {
 
         val datePart = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
         val timePart = SimpleDateFormat("HHmmss", Locale.getDefault()).format(Date())
-        val sanitizedGame = gameTitle.replace(Regex("[^a-zA-Z0-9_\\u4e00-\\u9fa5]"), "_")
-        val outputFile = File(outputDirectory, "${sanitizedGame}_${datePart}_${timePart}.mp4")
-
-        if (validFiles.size == 1) {
-            try {
-                FileInputStream(validFiles[0]).use { input ->
-                    FileOutputStream(outputFile).use { output ->
-                        input.copyTo(output)
-                    }
-                }
-                return outputFile
-            } catch (e: Exception) {
-                Log.e(tag, "Error copying single chunk", e)
-                return null
-            }
-        }
+        val outputFile = File(outputDirectory, "${datePart}_${timePart}.mp4")
 
         var muxer: MediaMuxer? = null
         try {
@@ -106,6 +89,8 @@ class ReplayMuxer(private val context: Context) {
             var globalAudioPtsOffsetUs = 0L
 
             for (extractor in extractors) {
+                var chunkFirstVideoPtsUs = -1L
+                var chunkFirstAudioPtsUs = -1L
                 var chunkMaxVideoPtsUs = 0L
                 var chunkMaxAudioPtsUs = 0L
 
@@ -131,30 +116,40 @@ class ReplayMuxer(private val context: Context) {
                     bufferInfo.flags = flags
 
                     if (sampleTrackIndex == videoTrackSourceIndex) {
-                        if (currentPtsUs > chunkMaxVideoPtsUs) {
-                            chunkMaxVideoPtsUs = currentPtsUs
+                        if (chunkFirstVideoPtsUs == -1L) {
+                            chunkFirstVideoPtsUs = currentPtsUs
                         }
-                        bufferInfo.presentationTimeUs = globalVideoPtsOffsetUs + currentPtsUs
+                        val relativePtsUs = (currentPtsUs - chunkFirstVideoPtsUs).coerceAtLeast(0L)
+                        if (relativePtsUs > chunkMaxVideoPtsUs) {
+                            chunkMaxVideoPtsUs = relativePtsUs
+                        }
+                        bufferInfo.presentationTimeUs = globalVideoPtsOffsetUs + relativePtsUs
                         muxer.writeSampleData(muxerVideoTrack, byteBuffer, bufferInfo)
                     } else if (sampleTrackIndex == audioTrackSourceIndex && muxerAudioTrack != -1) {
-                        if (currentPtsUs > chunkMaxAudioPtsUs) {
-                            chunkMaxAudioPtsUs = currentPtsUs
+                        if (chunkFirstAudioPtsUs == -1L) {
+                            chunkFirstAudioPtsUs = currentPtsUs
                         }
-                        bufferInfo.presentationTimeUs = globalAudioPtsOffsetUs + currentPtsUs
+                        val relativePtsUs = (currentPtsUs - chunkFirstAudioPtsUs).coerceAtLeast(0L)
+                        if (relativePtsUs > chunkMaxAudioPtsUs) {
+                            chunkMaxAudioPtsUs = relativePtsUs
+                        }
+                        bufferInfo.presentationTimeUs = globalAudioPtsOffsetUs + relativePtsUs
                         muxer.writeSampleData(muxerAudioTrack, byteBuffer, bufferInfo)
                     }
 
                     extractor.advance()
                 }
 
-                globalVideoPtsOffsetUs += (chunkMaxVideoPtsUs + 33_333L)
-                globalAudioPtsOffsetUs += (chunkMaxAudioPtsUs + 21_333L)
+                // Both tracks advance by the same chunk duration so audio and video never drift
+                val chunkDurationUs = maxOf(chunkMaxVideoPtsUs, chunkMaxAudioPtsUs)
+                globalVideoPtsOffsetUs += (chunkDurationUs + 16_666L)
+                globalAudioPtsOffsetUs += (chunkDurationUs + 16_666L)
                 extractor.release()
             }
 
             muxer.stop()
             muxer.release()
-            Log.d(tag, "Successfully stitched ${validFiles.size} chunks into ${outputFile.name}")
+            Log.d(tag, "Successfully stitched and synchronized ${validFiles.size} chunks into ${outputFile.name}")
             return outputFile
         } catch (e: Exception) {
             Log.e(tag, "Error during MediaMuxer stitching, using fallback", e)

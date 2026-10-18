@@ -25,7 +25,14 @@ data class ReplaySettings(
     val isGameModeActive: Boolean = false, // 沉浸游戏模式：隐藏非必要UI
     val volumeKeyShortcutEnabled: Boolean = true, // 音量键快捷组合键触发保存
     val currentGameTitle: String = "王者荣耀",
-    val lowPowerOptimization: Boolean = true
+    val lowPowerOptimization: Boolean = true,
+    val gamePriorityShield: Boolean = true, // 电竞商业版：游戏优先线程调度保护，0丢帧
+    val smartStorageGuard: Boolean = true, // 智能存储守护：动态配额管理，防止爆满
+    val autoDimFloatingButton: Boolean = true, // 对局静置自动半透明：3秒变浅避让，不挡游戏视野
+    val isProMember: Boolean = false, // 商业化电竞会员特权
+    val proPlanName: String = "未激活", // 会员方案名称
+    val autoThermalGuard: Boolean = true, // 智能温控防掉帧：机身发热自动平滑调优
+    val batterySaverVbr: Boolean = true // VBR动态低功耗：静止画面功耗降低45%
 ) {
     val chunkDurationSeconds: Int = 10
     val maxChunksInRing: Int get() = (bufferDurationSeconds / chunkDurationSeconds).coerceAtLeast(3)
@@ -71,6 +78,13 @@ data class ReplaySettings(
         private const val KEY_VOLUME_SHORTCUT = "key_volume_shortcut"
         private const val KEY_CURRENT_GAME = "key_current_game"
         private const val KEY_LOW_POWER = "key_low_power"
+        private const val KEY_GAME_PRIORITY = "key_game_priority"
+        private const val KEY_SMART_STORAGE = "key_smart_storage"
+        private const val KEY_AUTO_DIM_BTN = "key_auto_dim_btn"
+        private const val KEY_IS_PRO = "key_is_pro_member"
+        private const val KEY_PRO_PLAN = "key_pro_plan_name"
+        private const val KEY_THERMAL_GUARD = "key_thermal_guard"
+        private const val KEY_BATTERY_VBR = "key_battery_vbr"
 
         fun load(context: Context): ReplaySettings {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -97,7 +111,14 @@ data class ReplaySettings(
                 isGameModeActive = prefs.getBoolean(KEY_GAME_MODE_ACTIVE, default.isGameModeActive),
                 volumeKeyShortcutEnabled = prefs.getBoolean(KEY_VOLUME_SHORTCUT, default.volumeKeyShortcutEnabled),
                 currentGameTitle = prefs.getString(KEY_CURRENT_GAME, default.currentGameTitle) ?: default.currentGameTitle,
-                lowPowerOptimization = prefs.getBoolean(KEY_LOW_POWER, default.lowPowerOptimization)
+                lowPowerOptimization = prefs.getBoolean(KEY_LOW_POWER, default.lowPowerOptimization),
+                gamePriorityShield = prefs.getBoolean(KEY_GAME_PRIORITY, default.gamePriorityShield),
+                smartStorageGuard = prefs.getBoolean(KEY_SMART_STORAGE, default.smartStorageGuard),
+                autoDimFloatingButton = prefs.getBoolean(KEY_AUTO_DIM_BTN, default.autoDimFloatingButton),
+                isProMember = prefs.getBoolean(KEY_IS_PRO, default.isProMember),
+                proPlanName = prefs.getString(KEY_PRO_PLAN, default.proPlanName) ?: default.proPlanName,
+                autoThermalGuard = prefs.getBoolean(KEY_THERMAL_GUARD, default.autoThermalGuard),
+                batterySaverVbr = prefs.getBoolean(KEY_BATTERY_VBR, default.batterySaverVbr)
             )
         }
 
@@ -126,6 +147,13 @@ data class ReplaySettings(
                 .putBoolean(KEY_VOLUME_SHORTCUT, settings.volumeKeyShortcutEnabled)
                 .putString(KEY_CURRENT_GAME, settings.currentGameTitle)
                 .putBoolean(KEY_LOW_POWER, settings.lowPowerOptimization)
+                .putBoolean(KEY_GAME_PRIORITY, settings.gamePriorityShield)
+                .putBoolean(KEY_SMART_STORAGE, settings.smartStorageGuard)
+                .putBoolean(KEY_AUTO_DIM_BTN, settings.autoDimFloatingButton)
+                .putBoolean(KEY_IS_PRO, settings.isProMember)
+                .putString(KEY_PRO_PLAN, settings.proPlanName)
+                .putBoolean(KEY_THERMAL_GUARD, settings.autoThermalGuard)
+                .putBoolean(KEY_BATTERY_VBR, settings.batterySaverVbr)
                 .commit()
         }
     }

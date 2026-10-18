@@ -162,7 +162,7 @@ class ReplayRecorderService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, GameReplayApplication.CHANNEL_ID_REPLAY)
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_replay)
             .setContentIntent(openAppPendingIntent)
             .addAction(0, getString(R.string.notification_action_save), saveClipPendingIntent)
             .addAction(0, getString(R.string.notification_action_stop), stopPendingIntent)

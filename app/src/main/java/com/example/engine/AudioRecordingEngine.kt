@@ -166,7 +166,7 @@ class AudioRecordingEngine(
         val pcmBuffer = ByteArray(pcmBufferSize)
         val bufferInfo = MediaCodec.BufferInfo()
 
-        var currentAudioPtsUs = 0L
+        var lastAudioPtsUs = 0L
         val bytesPerFrame = channelCount * 2 // 16-bit stereo = 4 bytes per sample frame
         val frameDurationUs = (pcmBufferSize / bytesPerFrame) * 1_000_000L / sampleRate
 
@@ -194,16 +194,18 @@ class AudioRecordingEngine(
             }
 
             if (bytesRead > 0) {
-                // Step 2: Feed PCM to AAC Encoder
+                // Step 2: Feed PCM to AAC Encoder with monotonic system timestamp
+                val nowUs = System.nanoTime() / 1000L
+                val ptsUs = if (lastAudioPtsUs == 0L) nowUs else maxOf(lastAudioPtsUs + frameDurationUs, nowUs)
+                lastAudioPtsUs = ptsUs
+
                 val inputIndex = codec.dequeueInputBuffer(10_000)
                 if (inputIndex >= 0) {
                     val inputBuffer = codec.getInputBuffer(inputIndex)
                     if (inputBuffer != null) {
                         inputBuffer.clear()
                         inputBuffer.put(pcmBuffer, 0, bytesRead)
-                        codec.queueInputBuffer(inputIndex, 0, bytesRead, currentAudioPtsUs, 0)
-                        val duration = (bytesRead / bytesPerFrame) * 1_000_000L / sampleRate
-                        currentAudioPtsUs += duration
+                        codec.queueInputBuffer(inputIndex, 0, bytesRead, ptsUs, 0)
                     }
                 }
             }

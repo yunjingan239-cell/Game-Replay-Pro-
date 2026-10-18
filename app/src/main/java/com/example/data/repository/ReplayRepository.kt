@@ -56,7 +56,7 @@ class ReplayRepository(
 
             val (durationSec, resString) = extractVideoMetadata(outputFile)
 
-            val defaultTitle = "${currentSetting.currentGameTitle}_${datePart}_${timePart}.mp4"
+            val defaultTitle = "${datePart}_${timePart}.mp4"
             val title = if (customTitle.isNullOrBlank()) {
                 defaultTitle
             } else {
@@ -84,8 +84,7 @@ class ReplayRepository(
 
     private fun generateFallbackReplayFile(setting: ReplaySettings, datePart: String, timePart: String): File? {
         return try {
-            val sanitized = setting.currentGameTitle.replace(Regex("[^a-zA-Z0-9_\\u4e00-\\u9fa5]"), "_")
-            val targetFile = File(replayMuxer.outputDirectory, "${sanitized}_${datePart}_${timePart}.mp4")
+            val targetFile = File(replayMuxer.outputDirectory, "${datePart}_${timePart}.mp4")
             val success = com.example.engine.FallbackVideoGenerator.generateVideo(
                 outputFile = targetFile,
                 durationSeconds = 10,
@@ -110,8 +109,9 @@ class ReplayRepository(
             val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) ?: ""
             retriever.release()
             val durationSec = (durationMs / 1000).toInt()
+            val sanitizedDurationSec = if (durationSec in 1..3600) durationSec else 0
             val res = if (width.isNotEmpty() && height.isNotEmpty()) "${width}x${height}" else ""
-            Pair(durationSec, res)
+            Pair(sanitizedDurationSec, res)
         } catch (e: Exception) {
             Log.w(tag, "Metadata extraction skipped: ${e.message}")
             Pair(0, "")

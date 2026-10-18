@@ -265,7 +265,8 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                             },
                             onNavigateToLibrary = { currentTab = NavigationTab.LIBRARY },
                             onNavigateToGameMode = { currentTab = NavigationTab.GAMEMODE },
-                            onNavigateToSettings = { currentTab = NavigationTab.SETTINGS }
+                            onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
+                            onUpdateSettings = { viewModel.updateSettings(it) }
                         )
                     }
                     NavigationTab.LIBRARY -> {

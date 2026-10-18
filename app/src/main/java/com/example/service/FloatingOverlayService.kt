@@ -174,7 +174,7 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
         return NotificationCompat.Builder(this, GameReplayApplication.CHANNEL_ID_REPLAY)
             .setContentTitle("Game Replay Pro 悬浮球运行中")
             .setContentText("点击返回应用，或点击通知保存精彩瞬间")
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_replay)
             .setContentIntent(openPendingIntent)
             .addAction(0, "保存精彩瞬间", savePendingIntent)
             .setOngoing(true)

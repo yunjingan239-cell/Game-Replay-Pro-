@@ -130,38 +130,18 @@ fun ReplayLibraryScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         // 1. Header Title & Storage Info
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "视频库",
-                    color = TextTitle,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "已保存 ${clips.size} 个精彩瞬间 • 共占用 $totalStorageFormatted",
-                    color = TextMuted,
-                    fontSize = 12.sp
-                )
-            }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = PrimaryBlueLight,
-                border = BorderStroke(1.dp, BorderSubtle)
-            ) {
-                Text(
-                    text = "云相册排版",
-                    color = PrimaryBlue,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-            }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "视频库",
+                color = TextTitle,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "已保存 ${clips.size} 个精彩瞬间 • 共占用 $totalStorageFormatted",
+                color = TextMuted,
+                fontSize = 12.sp
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -457,22 +437,6 @@ fun ModernVideoCard(
                     )
                 }
 
-                // Top Left: Game Name Badge
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(12.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = clip.gameName,
-                        color = PureWhite,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
 
                 // Bottom Right: Duration Badge (e.g. 00:45)
                 Box(
@@ -565,8 +529,9 @@ fun ModernVideoCard(
 }
 
 private fun formatDuration(seconds: Int): String {
-    val mins = seconds / 60
-    val secs = seconds % 60
+    val safeSeconds = if (seconds in 1..3600) seconds else 60
+    val mins = safeSeconds / 60
+    val secs = safeSeconds % 60
     return String.format(Locale.getDefault(), "%02d:%02d", mins, secs)
 }
 

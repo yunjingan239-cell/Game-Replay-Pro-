@@ -2,10 +2,15 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.SurfaceTexture
+import android.media.AudioAttributes
 import android.media.MediaMetadataRetriever
+import android.media.MediaPlayer
+import android.os.Build
+import android.view.Surface
+import android.view.TextureView
 import android.view.ViewGroup
 import android.widget.Toast
-import android.widget.VideoView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -78,15 +83,16 @@ import com.example.util.MediaExportHelper
 import com.example.util.VideoThumbnailView
 import kotlinx.coroutines.delay
 import java.io.File
-import java.lang.ref.WeakReference
 
 /**
  * High-performance Esports Video Player Dialog.
- * Features:
- * - Native aspect-ratio playback (no distortion or awkward cropping).
- * - Draggable real-time progress slider with seek preview.
- * - Direct "Save to System Gallery" button (MediaStore integration).
- * - Fast-forward/rewind +/-5s, play/pause, and looping controls.
+ *
+ * Architecture Improvements:
+ * - Uses TextureView + MediaPlayer instead of SurfaceView/VideoView to eliminate
+ *   the Compose Dialog black-screen bug (where only audio plays without video).
+ * - Smooth frame-accurate seeking using MediaPlayer.SEEK_CLOSEST.
+ * - Progress bar synchronization with drag state locks, preventing snapback glitches.
+ * - Real-time scrubber preview with instant UI feedback.
  */
 @Composable
 fun VideoPlayerDialog(
@@ -97,6 +103,8 @@ fun VideoPlayerDialog(
     val videoFile = remember(clip.filePath) { File(clip.filePath) }
 
     var isPlaying by remember { mutableStateOf(true) }
+    var isPrepared by remember { mutableStateOf(false) }
+    var isSeeking by remember { mutableStateOf(false) }
     var currentPosMs by remember { mutableIntStateOf(0) }
     var totalDurationMs by remember { mutableIntStateOf((clip.durationSeconds * 1000).coerceAtLeast(1000)) }
     var isDragging by remember { mutableStateOf(false) }
@@ -112,8 +120,13 @@ fun VideoPlayerDialog(
                 retriever.setDataSource(videoFile.absolutePath)
                 val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull() ?: 16f
                 val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull() ?: 9f
+                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
                 retriever.release()
-                (w / h).coerceIn(0.5f, 2.5f)
+                if (rotation == 90 || rotation == 270) {
+                    (h / w).coerceIn(0.5f, 2.5f)
+                } else {
+                    (w / h).coerceIn(0.5f, 2.5f)
+                }
             } else 16f / 9f
         } catch (_: Exception) {
             16f / 9f
@@ -121,17 +134,107 @@ fun VideoPlayerDialog(
         mutableFloatStateOf(initialRatio)
     }
 
-    var videoViewRef by remember { mutableStateOf<WeakReference<VideoView>?>(null) }
+    var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var surfaceRef by remember { mutableStateOf<Surface?>(null) }
+
+    fun performSeek(targetMs: Int) {
+        val mp = mediaPlayer ?: return
+        val safeTarget = targetMs.coerceIn(0, totalDurationMs)
+        currentPosMs = safeTarget
+        isSeeking = true
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                mp.seekTo(safeTarget.toLong(), MediaPlayer.SEEK_CLOSEST)
+            } else {
+                mp.seekTo(safeTarget)
+            }
+        } catch (_: Exception) {
+            isSeeking = false
+        }
+    }
+
+    // Initialize MediaPlayer lifecycle
+    DisposableEffect(videoFile.absolutePath) {
+        if (!videoFile.exists()) {
+            onDispose {}
+        } else {
+            val mp = MediaPlayer().apply {
+                try {
+                    setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .build()
+                    )
+                    setDataSource(videoFile.absolutePath)
+                    isLooping = true
+                    setOnPreparedListener { player ->
+                        isPrepared = true
+                        val duration = player.duration
+                        if (duration in 1..1_800_000) {
+                            totalDurationMs = duration
+                        } else if (clip.durationSeconds in 1..1800) {
+                            totalDurationMs = clip.durationSeconds * 1000
+                        }
+                        if (player.videoWidth > 0 && player.videoHeight > 0) {
+                            videoAspectRatio = (player.videoWidth.toFloat() / player.videoHeight.toFloat()).coerceIn(0.5f, 2.5f)
+                        }
+                        surfaceRef?.let {
+                            if (it.isValid) {
+                                player.setSurface(it)
+                            }
+                        }
+                        player.start()
+                        isPlaying = true
+                    }
+                    setOnVideoSizeChangedListener { _, w, h ->
+                        if (w > 0 && h > 0) {
+                            videoAspectRatio = (w.toFloat() / h.toFloat()).coerceIn(0.5f, 2.5f)
+                        }
+                    }
+                    setOnSeekCompleteListener {
+                        isSeeking = false
+                    }
+                    setOnCompletionListener {
+                        isPlaying = false
+                        currentPosMs = totalDurationMs
+                    }
+                    prepareAsync()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+            mediaPlayer = mp
+
+            onDispose {
+                try {
+                    if (mp.isPlaying) {
+                        mp.stop()
+                    }
+                    mp.reset()
+                    mp.release()
+                } catch (_: Exception) {}
+                surfaceRef?.release()
+                surfaceRef = null
+                mediaPlayer = null
+            }
+        }
+    }
 
     // Periodic progress updater while playing
-    LaunchedEffect(isPlaying, isDragging) {
-        while (isPlaying && !isDragging) {
-            val vView = videoViewRef?.get()
-            if (vView != null && vView.isPlaying) {
-                currentPosMs = vView.currentPosition
-                if (vView.duration > 0) {
-                    totalDurationMs = vView.duration
-                }
+    LaunchedEffect(isPrepared, isPlaying, isDragging, isSeeking) {
+        while (isPrepared && isPlaying && !isDragging && !isSeeking) {
+            val mp = mediaPlayer
+            if (mp != null) {
+                try {
+                    if (mp.isPlaying) {
+                        currentPosMs = mp.currentPosition
+                        val dur = mp.duration
+                        if (dur > 0) {
+                            totalDurationMs = dur
+                        }
+                    }
+                } catch (_: Exception) {}
             }
             delay(150)
         }
@@ -142,12 +245,6 @@ fun VideoPlayerDialog(
         if (isControlsVisible && isPlaying && !isDragging) {
             delay(4000)
             isControlsVisible = false
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            videoViewRef?.get()?.stopPlayback()
         }
     }
 
@@ -183,8 +280,13 @@ fun VideoPlayerDialog(
                             maxLines = 1
                         )
                         Spacer(modifier = Modifier.height(2.dp))
+                        val displayDurationSec = if (clip.durationSeconds in 1..1800) {
+                            clip.durationSeconds
+                        } else {
+                            (totalDurationMs / 1000).coerceIn(1, 300)
+                        }
                         Text(
-                            text = "${clip.gameName} • 规格 ${clip.resolution} • ${clip.durationSeconds}秒",
+                            text = "规格 ${clip.resolution} • ${displayDurationSec}秒",
                             color = PrimaryBlue,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -217,35 +319,48 @@ fun VideoPlayerDialog(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    // Video Thumbnail Preview Backdrop
-                    VideoThumbnailView(
-                        clip = clip,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    // Placeholder Backdrop before video frames arrive
+                    if (!isPrepared) {
+                        VideoThumbnailView(
+                            clip = clip,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
                     if (videoFile.exists()) {
+                        // High-performance hardware TextureView rendering
                         AndroidView(
                             factory = { ctx ->
-                                VideoView(ctx).apply {
+                                TextureView(ctx).apply {
                                     layoutParams = ViewGroup.LayoutParams(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
-                                    setVideoPath(videoFile.absolutePath)
-                                    setOnPreparedListener { mp ->
-                                        mp.isLooping = true
-                                        totalDurationMs = mp.duration.coerceAtLeast(1000)
-                                        if (mp.videoWidth > 0 && mp.videoHeight > 0) {
-                                            videoAspectRatio = (mp.videoWidth.toFloat() / mp.videoHeight.toFloat()).coerceIn(0.5f, 2.5f)
+                                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                        override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                                            val newSurface = Surface(st)
+                                            surfaceRef = newSurface
+                                            mediaPlayer?.setSurface(newSurface)
                                         }
-                                        start()
-                                        isPlaying = true
+
+                                        override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
+
+                                        override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                                            mediaPlayer?.setSurface(null)
+                                            surfaceRef?.release()
+                                            surfaceRef = null
+                                            return true
+                                        }
+
+                                        override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
                                     }
-                                    setOnCompletionListener {
-                                        isPlaying = false
-                                        currentPosMs = totalDurationMs
+
+                                    // If surface texture is already available on re-bind
+                                    if (isAvailable && surfaceTexture != null) {
+                                        val newSurface = Surface(surfaceTexture)
+                                        surfaceRef = newSurface
+                                        mediaPlayer?.setSurface(newSurface)
                                     }
-                                    videoViewRef = WeakReference(this)
                                 }
                             },
                             modifier = Modifier.matchParentSize()
@@ -266,8 +381,7 @@ fun VideoPlayerDialog(
                                         .background(Color.Black.copy(alpha = 0.55f))
                                         .clickable {
                                             val newPos = (currentPosMs - 5000).coerceAtLeast(0)
-                                            videoViewRef?.get()?.seekTo(newPos)
-                                            currentPosMs = newPos
+                                            performSeek(newPos)
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -286,15 +400,17 @@ fun VideoPlayerDialog(
                                         .clip(CircleShape)
                                         .background(PrimaryBlue.copy(alpha = 0.9f))
                                         .clickable {
-                                            val vView = videoViewRef?.get()
-                                            if (vView != null) {
-                                                if (vView.isPlaying) {
-                                                    vView.pause()
-                                                    isPlaying = false
-                                                } else {
-                                                    vView.start()
-                                                    isPlaying = true
-                                                }
+                                            val mp = mediaPlayer
+                                            if (mp != null) {
+                                                try {
+                                                    if (mp.isPlaying) {
+                                                        mp.pause()
+                                                        isPlaying = false
+                                                    } else {
+                                                        mp.start()
+                                                        isPlaying = true
+                                                    }
+                                                } catch (_: Exception) {}
                                             }
                                         },
                                     contentAlignment = Alignment.Center
@@ -315,8 +431,7 @@ fun VideoPlayerDialog(
                                         .background(Color.Black.copy(alpha = 0.55f))
                                         .clickable {
                                             val newPos = (currentPosMs + 5000).coerceAtMost(totalDurationMs)
-                                            videoViewRef?.get()?.seekTo(newPos)
-                                            currentPosMs = newPos
+                                            performSeek(newPos)
                                         },
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -335,7 +450,7 @@ fun VideoPlayerDialog(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.65f))
+                                .background(Color.Black.copy(alpha = 0.70f))
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Row(
@@ -346,9 +461,8 @@ fun VideoPlayerDialog(
                                 // Replay from start
                                 IconButton(
                                     onClick = {
-                                        videoViewRef?.get()?.seekTo(0)
-                                        videoViewRef?.get()?.start()
-                                        currentPosMs = 0
+                                        performSeek(0)
+                                        mediaPlayer?.start()
                                         isPlaying = true
                                     },
                                     modifier = Modifier.size(28.dp)
@@ -361,24 +475,27 @@ fun VideoPlayerDialog(
                                     )
                                 }
 
-                                // Interactive Draggable Slider
+                                // Interactive Draggable Slider with safe bounds
+                                val currentVal = if (isDragging) dragProgressMs else currentPosMs.toFloat()
+                                val safeVal = currentVal.coerceIn(0f, totalDurationMs.toFloat().coerceAtLeast(1f))
+
                                 Slider(
-                                    value = if (isDragging) dragProgressMs else currentPosMs.toFloat(),
-                                    onValueChange = {
+                                    value = safeVal,
+                                    onValueChange = { newValue ->
                                         isDragging = true
-                                        dragProgressMs = it
+                                        dragProgressMs = newValue
+                                        performSeek(newValue.toInt())
                                     },
                                     onValueChangeFinished = {
+                                        val target = dragProgressMs.toInt()
+                                        performSeek(target)
                                         isDragging = false
-                                        val targetPos = dragProgressMs.toInt()
-                                        videoViewRef?.get()?.seekTo(targetPos)
-                                        currentPosMs = targetPos
                                     },
                                     valueRange = 0f..totalDurationMs.toFloat().coerceAtLeast(1f),
                                     colors = SliderDefaults.colors(
                                         thumbColor = PureWhite,
                                         activeTrackColor = PrimaryBlue,
-                                        inactiveTrackColor = Color.White.copy(alpha = 0.3f)
+                                        inactiveTrackColor = Color.White.copy(alpha = 0.35f)
                                     ),
                                     modifier = Modifier.weight(1f)
                                 )
@@ -468,9 +585,14 @@ fun VideoPlayerDialog(
 
 private fun formatDurationMs(millis: Int): String {
     val totalSeconds = (millis / 1000).coerceAtLeast(0)
-    val minutes = totalSeconds / 60
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
     val seconds = totalSeconds % 60
-    return String.format("%02d:%02d", minutes, seconds)
+    return if (hours > 0) {
+        String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format("%02d:%02d", minutes, seconds)
+    }
 }
 
 private fun shareVideo(context: Context, file: File) {

@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForwardIos
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Diamond
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
@@ -119,9 +120,11 @@ fun DashboardScreen(
     onLaunchGame: (InstalledGame) -> Unit,
     onNavigateToLibrary: () -> Unit = {},
     onNavigateToGameMode: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    onUpdateSettings: (ReplaySettings) -> Unit = {}
 ) {
     val context = LocalContext.current
+    var showProUpgrade by remember { mutableStateOf(false) }
 
     val projectionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -165,30 +168,27 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Friendly brand emblem icon
+                    Image(
+                        painter = painterResource(id = com.example.R.drawable.img_replay_app_icon),
+                        contentDescription = "Logo",
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(9.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Friendly brand emblem icon
-                            Image(
-                                painter = painterResource(id = com.example.R.drawable.img_replay_app_icon),
-                                contentDescription = "Logo",
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(RoundedCornerShape(9.dp)),
-                                contentScale = ContentScale.Crop
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "GAME REPLAY PRO",
-                                color = TextTitle,
-                                fontSize = 19.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "GAME REPLAY PRO",
+                            color = TextTitle,
+                            fontSize = 19.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.5.sp
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "智能游戏回录助手",
                             color = TextMuted,
@@ -196,12 +196,6 @@ fun DashboardScreen(
                             fontWeight = FontWeight.Medium
                         )
                     }
-
-                    // Device / Engine Status Pill (like "2台设备在线" in reference)
-                    StatusBadge(
-                        text = if (state.isBuffering) "正在运行" else "引擎待机",
-                        isActive = state.isBuffering
-                    )
                 }
             }
 
@@ -232,6 +226,89 @@ fun DashboardScreen(
                             text = "搜索游戏或快捷拉起对局（当前：${settings.currentGameTitle}）",
                             color = TextMuted,
                             fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+
+            // 2.5 Pro VIP Commercialization Banner (Gaming technology aesthetics)
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { showProUpgrade = true }
+                        .testTag("dashboard_pro_vip_banner"),
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (settings.isProMember) Color(0xFF0F172A) else Color(0xFF0F172A),
+                    border = BorderStroke(
+                        1.dp,
+                        if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7).copy(alpha = 0.5f)
+                    ),
+                    shadowElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(RoundedCornerShape(11.dp))
+                                    .background(if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Diamond,
+                                    contentDescription = "Pro VIP",
+                                    tint = PureWhite,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = if (settings.isProMember) "PRO 电竞尊享会员" else "升级 GAME REPLAY PRO",
+                                        color = PureWhite,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF38BDF8)
+                                    ) {
+                                        Text(
+                                            text = if (settings.isProMember) settings.proPlanName else "立省 ¥30",
+                                            color = PureWhite,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (settings.isProMember) "硬件级 VBR 节能已生效 • 发热功耗直降 45%" else "解锁 2K 120FPS 极清原画 • 功耗直降 45%",
+                                    color = Color.White.copy(alpha = 0.75f),
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.ArrowForwardIos,
+                            contentDescription = "Open Pro",
+                            tint = Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(12.dp)
                         )
                     }
                 }
@@ -647,8 +724,9 @@ fun DashboardScreen(
                                             maxLines = 1
                                         )
                                         Spacer(modifier = Modifier.height(3.dp))
+                                        val safeDuration = if (latest.durationSeconds in 1..1800) latest.durationSeconds else 60
                                         Text(
-                                            text = "${latest.gameName} • 长度 ${latest.durationSeconds}秒",
+                                            text = "规格 ${latest.resolution} • 长度 ${safeDuration}秒",
                                             color = TextMuted,
                                             fontSize = 11.sp
                                         )
@@ -810,6 +888,14 @@ fun DashboardScreen(
             item {
                 Spacer(modifier = Modifier.height(20.dp))
             }
+        }
+
+        if (showProUpgrade) {
+            ProUpgradeDialog(
+                settings = settings,
+                onUpdateSettings = onUpdateSettings,
+                onDismiss = { showProUpgrade = false }
+            )
         }
     }
 }
