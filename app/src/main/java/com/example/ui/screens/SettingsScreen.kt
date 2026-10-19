@@ -86,7 +86,6 @@ fun SettingsScreen(
     onClearBufferCache: () -> Unit
 ) {
     val context = LocalContext.current
-    var showProDialog by remember { mutableStateOf(false) }
 
     val durationOptions = listOf(30, 60, 120, 180)
     val fpsOptions = listOf(30, 60, 90, 120)
@@ -112,83 +111,6 @@ fun SettingsScreen(
                     color = TextMuted,
                     fontSize = 13.sp
                 )
-            }
-        }
-
-        // 0. Pro Commercialization Center Card
-        item {
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF0F172A),
-                border = BorderStroke(
-                    1.dp,
-                    if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7).copy(alpha = 0.5f)
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { showProDialog = true }
-                    .testTag("settings_pro_banner")
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(42.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Default.Diamond, contentDescription = "Pro", tint = PureWhite, modifier = Modifier.size(24.dp))
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = if (settings.isProMember) "PRO 电竞会员：已生效" else "升级 GAME REPLAY PRO",
-                                    color = PureWhite,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF38BDF8)
-                                ) {
-                                    Text(
-                                        text = if (settings.isProMember) settings.proPlanName else "特惠体验",
-                                        color = PureWhite,
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = if (settings.isProMember) "2K 120FPS 极清原画 • 硬件级低功耗 VBR 加速" else "解锁 180秒超长回录 • 120FPS • 硬件级低能耗",
-                                color = Color.White.copy(alpha = 0.75f),
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-
-                    Icon(
-                        imageVector = Icons.Default.ArrowForwardIos,
-                        contentDescription = "Open Pro",
-                        tint = Color.White.copy(alpha = 0.6f),
-                        modifier = Modifier.size(12.dp)
-                    )
-                }
             }
         }
 
@@ -224,7 +146,6 @@ fun SettingsScreen(
                     ) {
                         durationOptions.forEach { seconds ->
                             val isSelected = settings.bufferDurationSeconds == seconds
-                            val isProOnly = (seconds == 180)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -232,12 +153,7 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        if (isProOnly && !settings.isProMember) {
-                                            showProDialog = true
-                                            Toast.makeText(context, "180秒超长回录为 Pro 会员专属特权", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            onUpdateSettings(settings.copy(bufferDurationSeconds = seconds))
-                                        }
+                                        onUpdateSettings(settings.copy(bufferDurationSeconds = seconds))
                                     }
                                     .testTag("duration_option_$seconds")
                             ) {
@@ -245,29 +161,12 @@ fun SettingsScreen(
                                     modifier = Modifier.padding(vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "${seconds}秒",
-                                            color = if (isSelected) PureWhite else TextTitle,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (isProOnly) {
-                                            Spacer(modifier = Modifier.width(3.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFF59E0B)
-                                            ) {
-                                                Text(
-                                                    text = "PRO",
-                                                    color = PureWhite,
-                                                    fontSize = 8.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
-                                    }
+                                    Text(
+                                        text = "${seconds}秒",
+                                        color = if (isSelected) PureWhite else TextTitle,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                     Text(
                                         text = "${seconds / 10} 分片",
                                         color = if (isSelected) PureWhite.copy(alpha = 0.8f) else TextMuted,
@@ -330,13 +229,12 @@ fun SettingsScreen(
                         ) {
                             val row2 = listOf(
                                 Triple(1280, 720, "720P 极速省电"),
-                                Triple(2560, 1440, "2K 旗舰超清 (PRO)")
+                                Triple(2560, 1440, "2K 旗舰超清")
                             )
                             row2.forEach { (w, h, label) ->
                                 val isSelected = (label.contains("720P") && settings.resolutionLabel.contains("720")) ||
                                         (label.contains("2K") && settings.resolutionLabel.contains("2K")) ||
                                         settings.resolutionLabel == label
-                                val isProOnly = label.contains("2K")
                                 Surface(
                                     shape = RoundedCornerShape(12.dp),
                                     color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -344,18 +242,13 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
-                                            if (isProOnly && !settings.isProMember) {
-                                                showProDialog = true
-                                                Toast.makeText(context, "2K 旗舰超清为 Pro 会员专属特权", Toast.LENGTH_SHORT).show()
-                                            } else {
-                                                onUpdateSettings(
-                                                    settings.copy(
-                                                        resolutionWidth = w,
-                                                        resolutionHeight = h,
-                                                        resolutionLabel = label
-                                                    )
+                                            onUpdateSettings(
+                                                settings.copy(
+                                                    resolutionWidth = w,
+                                                    resolutionHeight = h,
+                                                    resolutionLabel = label
                                                 )
-                                            }
+                                            )
                                         }
                                 ) {
                                     Text(
@@ -382,7 +275,6 @@ fun SettingsScreen(
                     ) {
                         fpsOptions.forEach { fps ->
                             val isSelected = settings.fps == fps
-                            val isProOnly = (fps == 120)
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
@@ -390,41 +282,19 @@ fun SettingsScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clickable {
-                                        if (isProOnly && !settings.isProMember) {
-                                            showProDialog = true
-                                            Toast.makeText(context, "120 FPS 极清高刷为 Pro 会员专属特权", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            onUpdateSettings(settings.copy(fps = fps))
-                                        }
+                                        onUpdateSettings(settings.copy(fps = fps))
                                     }
                             ) {
                                 Column(
-                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    modifier = Modifier.padding(vertical = 10.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "$fps FPS",
-                                            color = if (isSelected) PureWhite else TextTitle,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        if (isProOnly) {
-                                            Spacer(modifier = Modifier.width(2.dp))
-                                            Surface(
-                                                shape = RoundedCornerShape(4.dp),
-                                                color = Color(0xFFF59E0B)
-                                            ) {
-                                                Text(
-                                                    text = "PRO",
-                                                    color = PureWhite,
-                                                    fontSize = 7.sp,
-                                                    fontWeight = FontWeight.Black,
-                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 1.dp)
-                                                )
-                                            }
-                                        }
-                                    }
+                                    Text(
+                                        text = "$fps FPS",
+                                        color = if (isSelected) PureWhite else TextTitle,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -814,14 +684,6 @@ fun SettingsScreen(
         item {
             Spacer(modifier = Modifier.height(24.dp))
         }
-    }
-
-    if (showProDialog) {
-        ProUpgradeDialog(
-            settings = settings,
-            onUpdateSettings = onUpdateSettings,
-            onDismiss = { showProDialog = false }
-        )
     }
 }
 

@@ -102,6 +102,7 @@ class ReplayRecorderService : Service() {
                 initializeAndStartEngine(resultCode, resultData)
             }
             ACTION_STOP -> {
+                FloatingOverlayService.stop(this)
                 stopReplayService()
             }
             ACTION_SAVE_CLIP -> {
@@ -213,12 +214,13 @@ class ReplayRecorderService : Service() {
 
         recordingEngine?.startRecording(mediaProjection, settings)
         _serviceStatus.value = _serviceStatus.value.copy(isBuffering = true)
+        ReplayTileService.requestTileUpdate(this)
     }
 
     private fun saveReplayClip(customTitle: String?) {
         vibratePhone()
         _serviceStatus.value = _serviceStatus.value.copy(isSavingClip = true)
-        Toast.makeText(this, "请稍等", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "正在保存...", Toast.LENGTH_SHORT).show()
 
         serviceScope.launch {
             val app = application as GameReplayApplication
@@ -246,7 +248,7 @@ class ReplayRecorderService : Service() {
             )
 
             if (savedClip != null) {
-                Toast.makeText(this@ReplayRecorderService, "保存成功", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@ReplayRecorderService, "已保存", Toast.LENGTH_SHORT).show()
                 Log.i(tag, "Replay successfully saved: ${savedClip.title}")
             } else {
                 Toast.makeText(this@ReplayRecorderService, "保存失败", Toast.LENGTH_SHORT).show()
@@ -293,6 +295,7 @@ class ReplayRecorderService : Service() {
         )
 
         stopForeground(STOP_FOREGROUND_REMOVE)
+        ReplayTileService.requestTileUpdate(this)
         stopSelf()
     }
 

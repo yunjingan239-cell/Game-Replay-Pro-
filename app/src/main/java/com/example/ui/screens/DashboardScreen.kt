@@ -1,13 +1,20 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.app.StatusBarManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
+import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.example.R
+import com.example.service.ReplayTileService
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -124,7 +131,6 @@ fun DashboardScreen(
     onUpdateSettings: (ReplaySettings) -> Unit = {}
 ) {
     val context = LocalContext.current
-    var showProUpgrade by remember { mutableStateOf(false) }
 
     val projectionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -226,89 +232,6 @@ fun DashboardScreen(
                             text = "搜索游戏或快捷拉起对局（当前：${settings.currentGameTitle}）",
                             color = TextMuted,
                             fontSize = 13.sp
-                        )
-                    }
-                }
-            }
-
-            // 2.5 Pro VIP Commercialization Banner (Gaming technology aesthetics)
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .clickable { showProUpgrade = true }
-                        .testTag("dashboard_pro_vip_banner"),
-                    shape = RoundedCornerShape(18.dp),
-                    color = if (settings.isProMember) Color(0xFF0F172A) else Color(0xFF0F172A),
-                    border = BorderStroke(
-                        1.dp,
-                        if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7).copy(alpha = 0.5f)
-                    ),
-                    shadowElevation = 2.dp
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 13.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(11.dp))
-                                    .background(if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF0284C7)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Diamond,
-                                    contentDescription = "Pro VIP",
-                                    tint = PureWhite,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = if (settings.isProMember) "PRO 电竞尊享会员" else "升级 GAME REPLAY PRO",
-                                        color = PureWhite,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(6.dp),
-                                        color = if (settings.isProMember) Color(0xFFF59E0B) else Color(0xFF38BDF8)
-                                    ) {
-                                        Text(
-                                            text = if (settings.isProMember) settings.proPlanName else "立省 ¥30",
-                                            color = PureWhite,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = if (settings.isProMember) "硬件级 VBR 节能已生效 • 发热功耗直降 45%" else "解锁 2K 120FPS 极清原画 • 功耗直降 45%",
-                                    color = Color.White.copy(alpha = 0.75f),
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-
-                        Icon(
-                            imageVector = Icons.Default.ArrowForwardIos,
-                            contentDescription = "Open Pro",
-                            tint = Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(12.dp)
                         )
                     }
                 }
@@ -416,7 +339,12 @@ fun DashboardScreen(
                                 onCheckedChange = { checked ->
                                     if (checked) {
                                         val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                                        val captureIntent = projectionManager.createScreenCaptureIntent()
+                                        val captureIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                            val config = MediaProjectionConfig.createConfigForDefaultDisplay()
+                                            projectionManager.createScreenCaptureIntent(config)
+                                        } else {
+                                            projectionManager.createScreenCaptureIntent()
+                                        }
                                         projectionLauncher.launch(captureIntent)
                                     } else {
                                         onStopReplay()
@@ -643,6 +571,120 @@ fun DashboardScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Quick Settings Control Center Shortcut Tile Card
+            item {
+                CyberCard {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Surface(
+                                    modifier = Modifier.size(38.dp),
+                                    shape = CircleShape,
+                                    color = PrimaryBlueLight
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.Bolt,
+                                            contentDescription = "控制中心快捷键",
+                                            tint = PrimaryBlue,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "手机控制中心快捷开关",
+                                        color = TextTitle,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "下拉系统状态栏即可一键启停/保存",
+                                        color = TextMuted,
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (state.isBuffering) PrimaryBlueLight else Color(0xFFF2F4F7)
+                            ) {
+                                Text(
+                                    text = if (state.isBuffering) "回录中" else "已就绪",
+                                    color = if (state.isBuffering) PrimaryBlue else TextMuted,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "已启用【全屏免打扰投屏】模式：首次点击快捷开关开启回录及悬浮窗，再次点击即可快速关闭，简洁不扰局。",
+                            color = TextBody,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp
+                        )
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = {
+                                    try {
+                                        val statusBarManager = context.getSystemService(StatusBarManager::class.java)
+                                        val component = ComponentName(context, ReplayTileService::class.java)
+                                        statusBarManager?.requestAddTileService(
+                                            component,
+                                            context.getString(R.string.tile_replay_label),
+                                            Icon.createWithResource(context, R.drawable.ic_qs_replay),
+                                            context.mainExecutor
+                                        ) { result ->
+                                            if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED) {
+                                                android.widget.Toast.makeText(context, "已添加快捷开关", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    } catch (e: Exception) {
+                                        android.widget.Toast.makeText(context, "请在通知栏编辑中添加【游戏回录】", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryBlueLight,
+                                    contentColor = PrimaryBlue
+                                ),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bolt,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "一键添加快捷按钮到控制中心",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     }
@@ -888,14 +930,6 @@ fun DashboardScreen(
             item {
                 Spacer(modifier = Modifier.height(20.dp))
             }
-        }
-
-        if (showProUpgrade) {
-            ProUpgradeDialog(
-                settings = settings,
-                onUpdateSettings = onUpdateSettings,
-                onDismiss = { showProUpgrade = false }
-            )
         }
     }
 }

@@ -100,6 +100,7 @@ import com.example.R
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.res.painterResource
 
 /**
  * Enhanced Gaming Floating Replay Overlay:
@@ -421,12 +422,21 @@ fun FloatingReplayOverlay(
                         }
                     }
             ) {
-                Icon(
-                    imageVector = if (isSaving) Icons.Default.FiberManualRecord else Icons.Default.Bolt,
-                    contentDescription = "保存高光瞬间",
-                    tint = if (isSaving) PureWhite else PrimaryBlue,
-                    modifier = Modifier.size((animatedButtonSizeDp.value * 0.52f).dp)
-                )
+                if (isSaving) {
+                    Icon(
+                        imageVector = Icons.Default.FiberManualRecord,
+                        contentDescription = "保存中",
+                        tint = PureWhite,
+                        modifier = Modifier.size((animatedButtonSizeDp.value * 0.52f).dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = "保存高光瞬间",
+                        tint = PrimaryBlue,
+                        modifier = Modifier.size((animatedButtonSizeDp.value * 0.58f).dp)
+                    )
+                }
             }
 
             // Quick HUD Menu when expanded (Clean white floating card)

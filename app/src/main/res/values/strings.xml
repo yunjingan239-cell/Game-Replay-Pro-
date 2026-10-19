@@ -8,4 +8,7 @@
     <string name="notification_action_stop">停止回录引擎</string>
     <string name="saving_clip_notification">请稍等</string>
     <string name="clip_saved_toast">保存成功</string>
+    <string name="tile_replay_label">游戏回录</string>
+    <string name="tile_subtitle_active">正在回录 • 点击关闭</string>
+    <string name="tile_subtitle_inactive">点击开启</string>
 </resources>
