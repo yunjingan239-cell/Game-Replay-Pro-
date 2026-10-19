@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -171,7 +172,15 @@ class ReplayRecorderService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
 
-        startForeground(GameReplayApplication.NOTIFICATION_ID_RECORDER, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            startForeground(GameReplayApplication.NOTIFICATION_ID_RECORDER, notification, serviceType)
+        } else {
+            startForeground(GameReplayApplication.NOTIFICATION_ID_RECORDER, notification)
+        }
         _serviceStatus.value = _serviceStatus.value.copy(isRunning = true)
     }
 

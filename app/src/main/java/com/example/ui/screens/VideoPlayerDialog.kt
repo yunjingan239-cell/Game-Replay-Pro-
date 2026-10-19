@@ -166,6 +166,7 @@ fun VideoPlayerDialog(
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .build()
                     )
+                    setVolume(1.0f, 1.0f)
                     setDataSource(videoFile.absolutePath)
                     isLooping = true
                     setOnPreparedListener { player ->

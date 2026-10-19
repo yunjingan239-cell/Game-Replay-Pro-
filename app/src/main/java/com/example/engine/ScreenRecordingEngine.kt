@@ -85,9 +85,12 @@ class ScreenRecordingEngine(
     private var cachedAudioOutputFormat: MediaFormat? = null
 
     // PTS Normalization per chunk to guarantee synchronous zero-based video & audio playback
-    private var chunkBasePtsUs: Long = -1L
+    private var chunkBaseVideoPtsUs: Long = -1L
+    private var chunkBaseAudioPtsUs: Long = -1L
     private var lastChunkVideoPtsUs: Long = 0L
     private var lastChunkAudioPtsUs: Long = 0L
+
+    private var isAudioRequested = false
 
     private var handlerThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
@@ -115,6 +118,7 @@ class ScreenRecordingEngine(
 
         this.mediaProjection = projection
         this.currentSettings = settings
+        this.isAudioRequested = (settings.internalAudioEnabled || settings.micAudioEnabled)
         isRecording = true
 
         // Isolate thread priority so the game UI & 3D render thread gets 100% core scheduling
@@ -125,11 +129,12 @@ class ScreenRecordingEngine(
         backgroundHandler = Handler(handlerThread!!.looper)
 
         try {
-            setupCodecAndVirtualDisplay(settings)
+            // Initialize audio engine first so AAC format is primed alongside video
             setupAudioEngine(settings)
+            setupCodecAndVirtualDisplay(settings)
             startChunkRotationLoop(settings)
             setupOrientationMonitoring(settings)
-            Log.i(tag, "Commercial instant replay engine active ($encoderName, MIME=$activeMimeType, HDR=$isHdrEnabled)")
+            Log.i(tag, "Commercial instant replay engine active ($encoderName, MIME=$activeMimeType, HDR=$isHdrEnabled, AudioReq=$isAudioRequested)")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start hardware recording engine", e)
             onError("硬件录制编码器初始化失败: ${e.localizedMessage}")
@@ -154,10 +159,10 @@ class ScreenRecordingEngine(
             onAudioSampleAvailable = { buffer, bufferInfo ->
                 synchronized(muxerLock) {
                     if (isMuxerStarted && audioTrackIndex != -1 && currentMuxer != null) {
-                        if (chunkBasePtsUs == -1L) {
-                            chunkBasePtsUs = bufferInfo.presentationTimeUs
+                        if (chunkBaseAudioPtsUs == -1L) {
+                            chunkBaseAudioPtsUs = bufferInfo.presentationTimeUs
                         }
-                        val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBasePtsUs).coerceAtLeast(0L)
+                        val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBaseAudioPtsUs).coerceAtLeast(0L)
                         val finalPtsUs = maxOf(lastChunkAudioPtsUs, relativePtsUs)
                         lastChunkAudioPtsUs = finalPtsUs
                         bufferInfo.presentationTimeUs = finalPtsUs
@@ -438,7 +443,8 @@ class ScreenRecordingEngine(
                 isMuxerStarted = false
                 videoTrackIndex = -1
                 audioTrackIndex = -1
-                chunkBasePtsUs = -1L
+                chunkBaseVideoPtsUs = -1L
+                chunkBaseAudioPtsUs = -1L
                 lastChunkVideoPtsUs = 0L
                 lastChunkAudioPtsUs = 0L
                 chunkStartTime = System.currentTimeMillis()
@@ -458,7 +464,7 @@ class ScreenRecordingEngine(
             val vFormat = cachedVideoOutputFormat
             val aFormat = cachedAudioOutputFormat
 
-            val audioRequired = (audioEngine != null)
+            val audioRequired = isAudioRequested
 
             if (vFormat != null && (!audioRequired || aFormat != null)) {
                 videoTrackIndex = muxer.addTrack(vFormat)
@@ -492,10 +498,10 @@ class ScreenRecordingEngine(
                             val outputBuffer = encoder.getOutputBuffer(outputBufferIndex)
                             synchronized(muxerLock) {
                                 if (outputBuffer != null && bufferInfo.size > 0 && isMuxerStarted && videoTrackIndex != -1 && currentMuxer != null) {
-                                    if (chunkBasePtsUs == -1L) {
-                                        chunkBasePtsUs = bufferInfo.presentationTimeUs
+                                    if (chunkBaseVideoPtsUs == -1L) {
+                                        chunkBaseVideoPtsUs = bufferInfo.presentationTimeUs
                                     }
-                                    val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBasePtsUs).coerceAtLeast(0L)
+                                    val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBaseVideoPtsUs).coerceAtLeast(0L)
                                     val finalPtsUs = maxOf(lastChunkVideoPtsUs, relativePtsUs)
                                     lastChunkVideoPtsUs = finalPtsUs
                                     bufferInfo.presentationTimeUs = finalPtsUs

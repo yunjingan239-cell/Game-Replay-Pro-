@@ -48,26 +48,26 @@ class ReplayMuxer(private val context: Context) {
                 MediaExtractor().apply { setDataSource(file.absolutePath) }
             }
 
-            val firstExtractor = extractors.first()
-            var videoTrackSourceIndex = -1
-            var audioTrackSourceIndex = -1
             var videoFormat: MediaFormat? = null
             var audioFormat: MediaFormat? = null
 
-            for (i in 0 until firstExtractor.trackCount) {
-                val format = firstExtractor.getTrackFormat(i)
-                val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
-                if (mime.startsWith("video/") && videoTrackSourceIndex == -1) {
-                    videoTrackSourceIndex = i
-                    videoFormat = format
-                } else if (mime.startsWith("audio/") && audioTrackSourceIndex == -1) {
-                    audioTrackSourceIndex = i
-                    audioFormat = format
+            // Dynamically scan chunks to find the pristine video and audio formats
+            for (ext in extractors) {
+                for (i in 0 until ext.trackCount) {
+                    val format = ext.getTrackFormat(i)
+                    val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
+                    if (mime.startsWith("video/") && videoFormat == null) {
+                        videoFormat = format
+                    }
+                    if (mime.startsWith("audio/") && audioFormat == null) {
+                        audioFormat = format
+                    }
                 }
+                if (videoFormat != null && audioFormat != null) break
             }
 
-            if (videoTrackSourceIndex == -1 || videoFormat == null) {
-                Log.e(tag, "No video track found in first chunk, falling back to file copy")
+            if (videoFormat == null) {
+                Log.e(tag, "No video track found across chunks, falling back to file copy")
                 extractors.forEach { it.release() }
                 muxer.release()
                 outputFile.delete()
@@ -78,6 +78,7 @@ class ReplayMuxer(private val context: Context) {
 
             val muxerVideoTrack = muxer.addTrack(videoFormat)
             val muxerAudioTrack = if (audioFormat != null) muxer.addTrack(audioFormat) else -1
+            Log.d(tag, "Stitching output tracks: videoTrack=$muxerVideoTrack, audioTrack=$muxerAudioTrack (audioPresent=${audioFormat != null})")
 
             muxer.start()
 
@@ -89,16 +90,29 @@ class ReplayMuxer(private val context: Context) {
             var globalAudioPtsOffsetUs = 0L
 
             for (extractor in extractors) {
+                var chunkVideoTrack = -1
+                var chunkAudioTrack = -1
+
+                for (i in 0 until extractor.trackCount) {
+                    val format = extractor.getTrackFormat(i)
+                    val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
+                    if (mime.startsWith("video/") && chunkVideoTrack == -1) {
+                        chunkVideoTrack = i
+                    } else if (mime.startsWith("audio/") && chunkAudioTrack == -1) {
+                        chunkAudioTrack = i
+                    }
+                }
+
                 var chunkFirstVideoPtsUs = -1L
                 var chunkFirstAudioPtsUs = -1L
                 var chunkMaxVideoPtsUs = 0L
                 var chunkMaxAudioPtsUs = 0L
 
-                if (videoTrackSourceIndex != -1) {
-                    extractor.selectTrack(videoTrackSourceIndex)
+                if (chunkVideoTrack != -1) {
+                    extractor.selectTrack(chunkVideoTrack)
                 }
-                if (audioTrackSourceIndex != -1 && muxerAudioTrack != -1) {
-                    extractor.selectTrack(audioTrackSourceIndex)
+                if (chunkAudioTrack != -1 && muxerAudioTrack != -1) {
+                    extractor.selectTrack(chunkAudioTrack)
                 }
 
                 while (true) {
@@ -115,7 +129,7 @@ class ReplayMuxer(private val context: Context) {
                     bufferInfo.size = sampleSize
                     bufferInfo.flags = flags
 
-                    if (sampleTrackIndex == videoTrackSourceIndex) {
+                    if (sampleTrackIndex == chunkVideoTrack && muxerVideoTrack != -1) {
                         if (chunkFirstVideoPtsUs == -1L) {
                             chunkFirstVideoPtsUs = currentPtsUs
                         }
@@ -125,7 +139,7 @@ class ReplayMuxer(private val context: Context) {
                         }
                         bufferInfo.presentationTimeUs = globalVideoPtsOffsetUs + relativePtsUs
                         muxer.writeSampleData(muxerVideoTrack, byteBuffer, bufferInfo)
-                    } else if (sampleTrackIndex == audioTrackSourceIndex && muxerAudioTrack != -1) {
+                    } else if (sampleTrackIndex == chunkAudioTrack && muxerAudioTrack != -1) {
                         if (chunkFirstAudioPtsUs == -1L) {
                             chunkFirstAudioPtsUs = currentPtsUs
                         }

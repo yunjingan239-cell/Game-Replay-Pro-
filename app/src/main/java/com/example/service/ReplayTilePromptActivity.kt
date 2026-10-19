@@ -1,8 +1,10 @@
 package com.example.service
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionConfig
 import android.media.projection.MediaProjectionManager
 import android.os.Build
@@ -20,6 +22,7 @@ class ReplayTilePromptActivity : Activity() {
 
     private val tag = "ReplayTilePromptAct"
     private val requestCodeCapture = 1001
+    private val requestCodeAudio = 1002
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,7 +36,18 @@ class ReplayTilePromptActivity : Activity() {
             overridePendingTransition(0, 0)
         }
 
-        requestScreenCapture()
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), requestCodeAudio)
+        } else {
+            requestScreenCapture()
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == requestCodeAudio) {
+            requestScreenCapture()
+        }
     }
 
     private fun requestScreenCapture() {

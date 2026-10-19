@@ -96,38 +96,43 @@ class AudioRecordingEngine(
 
         // 1. Try Internal Game Audio Playback Capture (Android 10+ MediaProjection)
         if (settings.internalAudioEnabled && mediaProjection != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val playbackConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
-                    .addMatchingUsage(AudioAttributes.USAGE_GAME)
-                    .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
-                    .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
-                    .build()
+            val hasRecordAudioPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (hasRecordAudioPermission) {
+                try {
+                    val playbackConfig = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
+                        .addMatchingUsage(AudioAttributes.USAGE_GAME)
+                        .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+                        .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+                        .build()
 
-                createdRecord = AudioRecord.Builder()
-                    .setAudioPlaybackCaptureConfig(playbackConfig)
-                    .setAudioFormat(
-                        AudioFormat.Builder()
-                            .setEncoding(audioEncoding)
-                            .setSampleRate(sampleRate)
-                            .setChannelMask(channelConfig)
-                            .build()
-                    )
-                    .setBufferSizeInBytes(minBufferSize * 2)
-                    .build()
+                    val record = AudioRecord.Builder()
+                        .setAudioPlaybackCaptureConfig(playbackConfig)
+                        .setAudioFormat(
+                            AudioFormat.Builder()
+                                .setEncoding(audioEncoding)
+                                .setSampleRate(sampleRate)
+                                .setChannelMask(channelConfig)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(minBufferSize * 2)
+                        .build()
 
-                if (createdRecord.state == AudioRecord.STATE_INITIALIZED) {
-                    Log.i(tag, "Using internal game audio playback capture (zero background mic noise)")
-                } else {
-                    createdRecord.release()
-                    createdRecord = null
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        createdRecord = record
+                        Log.i(tag, "Using internal game audio playback capture (zero background mic noise)")
+                    } else {
+                        record.release()
+                    }
+                } catch (e: Exception) {
+                    Log.w(tag, "Internal audio capture init failed, falling back: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w(tag, "Internal audio capture init failed, falling back: ${e.message}")
+            } else {
+                Log.w(tag, "RECORD_AUDIO permission not granted yet for internal playback capture")
             }
         }
 
         // 2. Microphone fallback if internal capture unavailable or mic commentary enabled
-        if (createdRecord == null && (settings.micAudioEnabled || mediaProjection == null)) {
+        if (createdRecord == null) {
             val hasMicPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
             if (hasMicPermission) {
                 try {
@@ -174,9 +179,21 @@ class AudioRecordingEngine(
         var synthPhase = 0.0
 
         while (isRecording) {
+            var effectiveBytes = 0
+
             // Step 1: Read audio data from AudioRecord or generate game synth audio
-            val bytesRead = if (record != null && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                record.read(pcmBuffer, 0, pcmBufferSize)
+            if (record != null && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                val bytesRead = record.read(pcmBuffer, 0, pcmBufferSize)
+                if (bytesRead > 0) {
+                    effectiveBytes = bytesRead
+                } else {
+                    // Audio hardware returned no bytes or error; fill with silence so audio clock never stalls
+                    pcmBuffer.fill(0)
+                    effectiveBytes = pcmBufferSize
+                    try {
+                        Thread.sleep((frameDurationUs / 1000).coerceAtLeast(10))
+                    } catch (_: Exception) {}
+                }
             } else {
                 // Generate clean esports chord audio tone (440Hz / 880Hz subtle game chime)
                 val frames = pcmBufferSize / 4
@@ -189,11 +206,13 @@ class AudioRecordingEngine(
                     pcmBuffer[idx + 2] = (sample.toInt() and 0xFF).toByte()
                     pcmBuffer[idx + 3] = ((sample.toInt() shr 8) and 0xFF).toByte()
                 }
-                Thread.sleep((frameDurationUs / 1000).coerceAtLeast(10))
-                pcmBufferSize
+                try {
+                    Thread.sleep((frameDurationUs / 1000).coerceAtLeast(10))
+                } catch (_: Exception) {}
+                effectiveBytes = pcmBufferSize
             }
 
-            if (bytesRead > 0) {
+            if (effectiveBytes > 0 && isRecording) {
                 // Step 2: Feed PCM to AAC Encoder with monotonic system timestamp
                 val nowUs = System.nanoTime() / 1000L
                 val ptsUs = if (lastAudioPtsUs == 0L) nowUs else maxOf(lastAudioPtsUs + frameDurationUs, nowUs)
@@ -204,8 +223,8 @@ class AudioRecordingEngine(
                     val inputBuffer = codec.getInputBuffer(inputIndex)
                     if (inputBuffer != null) {
                         inputBuffer.clear()
-                        inputBuffer.put(pcmBuffer, 0, bytesRead)
-                        codec.queueInputBuffer(inputIndex, 0, bytesRead, ptsUs, 0)
+                        inputBuffer.put(pcmBuffer, 0, effectiveBytes)
+                        codec.queueInputBuffer(inputIndex, 0, effectiveBytes, ptsUs, 0)
                     }
                 }
             }
