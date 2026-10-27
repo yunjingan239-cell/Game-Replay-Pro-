@@ -1,4 +1,4 @@
-# Game Replay Pro 
+# Game Replay Pro
 
 > **专为移动端电竞玩家打造的低功耗、零掉帧、后台无感“精彩时刻即时回录”助手。**  
 > 媲美 PC 端 **NVIDIA ShadowPlay (GeForce Experience)** 与 **Xbox Game Bar** 的核心回录体验。
@@ -100,47 +100,53 @@
 ## 04 项目工程目录 (Project Structure)
 
 ```
-app/src/main/java/com/example/
-├── MainActivity.kt                      # 应用主入口，权限调度与音量快捷键监听
-├── GameReplayApplication.kt             # 全局 Application，初始化通道与数据库依赖
-├── data/
-│   ├── local/
-│   │   ├── AppDatabase.kt               # Room 数据库配置
-│   │   ├── ReplayClip.kt                # 回录视频实体模型 (Entity)
-│   │   └── ReplayDao.kt                 # 视频记录增删查改 DAO
-│   ├── model/
-│   │   └── ReplaySettings.kt            # 回录参数配置 (码率/帧率/分辨率/时长/音频)
-│   └── repository/
-│       └── ReplayRepository.kt          # 数据持久化与高光切片保存仓库
-├── engine/
-│   ├── AudioRecordingEngine.kt          # 高性能系统原声/麦克风 AAC 采集编码引擎
-│   ├── CircularBufferManager.kt         # 滑动循环切片缓冲队列管理器
-│   ├── FallbackVideoGenerator.kt        # 离线环境与测试保底高光发生器
-│   ├── GameDetectionManager.kt          # 本地安装游戏嗅探与快速启动管理器
-│   ├── ReplayMuxer.kt                   # 极速多切片音视频无损提取与合成复用器
-│   └── ScreenRecordingEngine.kt         # 硬件级 MediaCodec 录屏流处理核心
-├── service/
-│   ├── FloatingOverlayService.kt        # 悬浮电竞闪电球服务与触控手势处理
-│   ├── ReplayRecorderService.kt         # 后台前台录制服务与切片轮转调度
-│   ├── ReplayTilePromptActivity.kt      # 控制中心磁贴免弹窗透明授权中转器
-│   └── ReplayTileService.kt             # 手机下拉控制中心快捷磁贴 (QS Tile)
-├── ui/
-│   ├── components/
-│   │   └── CommonCyberComponents.kt     # 电竞科技风卡片、标签、按钮通用组件
-│   ├── screens/
-│   │   ├── DashboardScreen.kt           # 控制台大厅 (状态指示、启停开关、硬件仪表盘)
-│   │   ├── GameModeScreen.kt            # 游戏模式专属面板 (支持一键快速启动游戏)
-│   │   ├── ReplayLibraryScreen.kt       # 精彩高光库 (浏览、多选批量管理、系统分享)
-│   │   ├── SettingsScreen.kt            # 详细录制参数设置 (画质、音频、悬浮球、存储)
-│   │   └── VideoPlayerDialog.kt         # 原生高清硬件回放弹窗 (进度拖拽、循环播放)
-│   └── theme/
-│       ├── Color.kt                     # 暗夜深黑、电竞蓝、赛博紫科技配色
-│       ├── Theme.kt                     # Material 3 动态科技主题配置
-│       └── Type.kt                      # 电竞数字化排版字体样式
-└── util/
-    ├── MediaExportHelper.kt             # 系统媒体相册共享与导出工具
-    ├── ScreenDimensionHelper.kt         # 屏幕物理分辨率与横竖屏自适应计算
-    └── VideoThumbnailHelper.kt          # 高清视频缩略图高效抽取缓存
+.
+├── .github/workflows/build-apk.yml      # GitHub Actions 云端自动打包配置
+├── build_apk.bat                        # Windows 本地一键编译打包脚本
+├── build_apk.sh                         # macOS / Linux 本地一键编译打包脚本
+├── gradlew / gradlew.bat                # Gradle Wrapper 跨平台构建启动器
+├── settings.gradle.kts                  # Gradle 全局配置与签名/环境变量自动初始化
+└── app/src/main/java/com/example/
+    ├── MainActivity.kt                  # 应用主入口，权限调度与音量快捷键监听
+    ├── GameReplayApplication.kt         # 全局 Application，初始化通道与数据库依赖
+    ├── data/
+    │   ├── local/
+    │   │   ├── AppDatabase.kt           # Room 数据库配置
+    │   │   ├── ReplayClip.kt            # 回录视频实体模型 (Entity)
+    │   │   └── ReplayDao.kt             # 视频记录增删查改 DAO
+    │   ├── model/
+    │   │   └── ReplaySettings.kt        # 回录参数配置 (码率/帧率/分辨率/时长/音频)
+    │   └── repository/
+    │       └── ReplayRepository.kt      # 数据持久化与高光切片保存仓库
+    ├── engine/
+    │   ├── AudioRecordingEngine.kt      # 高性能系统原声/麦克风 AAC 采集编码引擎
+    │   ├── CircularBufferManager.kt     # 滑动循环切片缓冲队列管理器
+    │   ├── FallbackVideoGenerator.kt    # 离线环境与测试保底高光发生器
+    │   ├── GameDetectionManager.kt      # 本地安装游戏嗅探与快速启动管理器
+    │   ├── ReplayMuxer.kt               # 极速多切片音视频无损提取与合成复用器
+    │   └── ScreenRecordingEngine.kt     # 硬件级 MediaCodec 录屏流处理核心
+    ├── service/
+    │   ├── FloatingOverlayService.kt    # 悬浮电竞闪电球服务与触控手势处理
+    │   ├── ReplayRecorderService.kt     # 后台前台录制服务与切片轮转调度
+    │   ├── ReplayTilePromptActivity.kt  # 控制中心磁贴免弹窗透明授权中转器
+    │   └── ReplayTileService.kt         # 手机下拉控制中心快捷磁贴 (QS Tile)
+    ├── ui/
+    │   ├── components/
+    │   │   └── CommonCyberComponents.kt # 电竞科技风卡片、标签、按钮通用组件
+    │   ├── screens/
+    │   │   ├── DashboardScreen.kt       # 控制台大厅 (状态指示、启停开关、硬件仪表盘)
+    │   │   ├── GameModeScreen.kt        # 游戏模式专属面板 (支持一键快速启动游戏)
+    │   │   ├── ReplayLibraryScreen.kt   # 精彩高光库 (浏览、多选批量管理、系统分享)
+    │   │   ├── SettingsScreen.kt        # 详细录制参数设置 (画质、音频、悬浮球、存储)
+    │   │   └── VideoPlayerDialog.kt     # 原生高清硬件回放弹窗 (自适应横屏与防变形)
+    │   └── theme/
+    │       ├── Color.kt                 # 暗夜深黑、电竞蓝、赛博紫科技配色
+    │       ├── Theme.kt                 # Material 3 动态科技主题配置
+    │       └── Type.kt                  # 电竞数字化排版字体样式
+    └── util/
+        ├── MediaExportHelper.kt         # 系统媒体相册共享与导出工具
+        ├── ScreenDimensionHelper.kt     # 屏幕物理分辨率与横竖屏自适应计算
+        └── VideoThumbnailHelper.kt      # 高清视频缩略图高效抽取缓存
 ```
 
 ---
@@ -171,7 +177,112 @@ app/src/main/java/com/example/
 
 ---
 
-## 07 快速上手与使用步骤 (User Guide)
+## 07 从 GitHub 下载后自行打包指南 (Self-Packaging Guide)
+
+本项目已内置完整的 Gradle Wrapper（`gradlew` / `gradlew.bat`）、签名自动还原机制（`settings.gradle.kts` 自动从 `debug.keystore.base64` 还原 `debug.keystore`）以及一键打包脚本。用户从 GitHub 下载或克隆仓库后，可通过以下四种方式自行编译打包 APK。
+
+### 7.1 环境前置要求 (Prerequisites)
+若在本地电脑编译，请确保满足以下基础环境（若使用 7.5 节的 GitHub Actions 云端打包，则无需在本地安装任何环境）：
+- **JDK 版本**：JDK 21（推荐使用 Eclipse Temurin 21 或 Android Studio 自带的 JBR 21）。
+- **Android SDK**：Android SDK Platform 36（Compile SDK 36，Build-Tools 36.0.0），可通过 Android Studio SDK Manager 一键安装，并配置环境变量 `ANDROID_HOME`（或在项目根目录自动由 Android Studio 生成 `local.properties`）。
+
+### 7.2 方式一：使用项目内置脚本一键打包（推荐）
+
+1. 将仓库克隆或下载解压到本地电脑：
+   ```bash
+   git clone https://github.com/yunjingan239-cell/Game-Replay-Pro-.git
+   cd Game-Replay-Pro-
+   ```
+2. 根据操作系统运行对应的一键打包脚本：
+   - **Windows 系统**：直接双击运行根目录下的 `build_apk.bat`，或在命令提示符（CMD / PowerShell）中执行：
+     ```bat
+     .\build_apk.bat
+     ```
+   - **macOS / Linux 系统**：在终端中执行：
+     ```bash
+     chmod +x build_apk.sh
+     ./build_apk.sh
+     ```
+3. 脚本会自动完成签名密钥还原、环境变量初始化及 Gradle 构建。编译完成后，生成的安装包路径为：
+   ```text
+   app/build/outputs/apk/debug/app-debug.apk
+   ```
+
+### 7.3 方式二：使用命令行 Gradle Wrapper 手动打包
+
+本项目在 `settings.gradle.kts` 中已集成自动初始化逻辑，首次运行 Gradle 时会自动生成所需的 `debug.keystore` 和 `.env` 文件。
+
+- **Windows (PowerShell / CMD)**：
+  ```bat
+  .\gradlew.bat assembleDebug
+  ```
+- **macOS / Linux**：
+  ```bash
+  chmod +x ./gradlew
+  ./gradlew assembleDebug
+  ```
+- 编译产物位置：`app/build/outputs/apk/debug/app-debug.apk`。
+
+### 7.4 方式三：使用 Android Studio 图形界面打包
+
+1. 打开 **Android Studio**（建议使用 Ladybug / Meerkat 或更新版本），点击 **Open** 选择下载解压后的项目根目录。
+2. 等待底部状态栏的 **Gradle Sync** 自动完成（`settings.gradle.kts` 会在同步阶段自动还原签名文件与环境配置）。
+3. 在顶部菜单栏依次点击 **Build -> Build Bundle(s) / APK(s) -> Build APK(s)**。
+4. 编译完成后，右下角弹窗点击 **locate**，即可在 `app/build/outputs/apk/debug/` 目录下获取 `app-debug.apk`。
+
+### 7.5 方式四：GitHub Actions 免本地环境云端打包
+
+如果电脑上未安装 JDK 或 Android SDK，可以直接利用项目内置的 `.github/workflows/build-apk.yml` 在 GitHub 云端打包：
+
+1. 将本项目 Fork 或推送到自己的 GitHub 仓库。
+2. 进入 GitHub 仓库顶部的 **Actions** 标签页。
+3. 在左侧选择 **Android APK Build** 工作流，点击右侧的 **Run workflow** 按钮触发构建。
+4. 等待约 2 至 3 分钟构建完成后，点进该次运行记录，在页面底部的 **Artifacts** 区域点击 **Game-Replay-Pro-debug-apk** 即可直接下载编译好的 `app-debug.apk`。
+
+---
+
+## 08 在电脑端运行与调试指南 (Running on PC Guide)
+
+由于本应用是原生 Android 应用程序（`.apk`），在电脑（Windows / macOS / Linux）上运行有以下三种主流方式：
+
+### 8.1 方式一：通过 Android Studio 官方模拟器运行（适合开发与调试）
+
+1. 使用 **Android Studio** 打开本项目。
+2. 点击右上角 **Device Manager（设备管理器）**，点击 **Create Virtual Device** 创建一个系统镜像为 **Android 13 (API 33) 或 Android 14/15/16 (API 34~36)** 的虚拟手机设备并启动。
+3. 在顶部工具栏选择刚刚启动的模拟器，点击绿色的 **Run 'app'** 按钮（或按快捷键 `Shift + F10`）。
+4. Android Studio 将自动编译并将应用安装运行在电脑端的模拟器窗口中。
+
+### 8.2 方式二：通过电脑端安卓手游模拟器运行（适合直接在 PC 端配合手游体验）
+
+如果你已经通过第 07 节的方法获得了打包好的 `app-debug.apk`，可以在电脑上安装主流安卓模拟器（如 **MuMu 模拟器 12**、**雷电模拟器 9**、**蓝叠模拟器 BlueStacks** 等）：
+
+1. 在电脑上启动安卓模拟器（建议使用 Android 11 或 Android 12 及以上 64 位内核版本）。
+2. 将编译好的 `app/build/outputs/apk/debug/app-debug.apk` 文件直接用鼠标**拖拽到模拟器窗口内**（或点击模拟器侧边栏的「安装 APK」按钮选择该文件）。
+3. 安装完成后，在模拟器桌面点击 **Game Replay Pro** 图标即可在电脑上运行，并可与模拟器内安装的《王者荣耀》《和平精英》等手游配合测试悬浮球与即时回录功能。
+
+### 8.3 方式三：手机连接电脑通过 ADB 与投屏运行（真机性能最佳）
+
+如果你想在电脑屏幕上操作并发挥手机硬件编码器的真实性能：
+
+1. 用数据线将 Android 手机连接至电脑，并在手机「开发者选项」中开启 **USB 调试**。
+2. 在电脑项目根目录下执行以下命令直接编译并安装到手机：
+   - Windows：
+     ```bat
+     .\gradlew.bat installDebug
+     ```
+   - macOS / Linux：
+     ```bash
+     ./gradlew installDebug
+     ```
+   或者直接用 ADB 安装已打包的 APK：
+   ```bash
+   adb install -r app/build/outputs/apk/debug/app-debug.apk
+   ```
+3. 配合开源桌面投屏工具 **scrcpy**（在电脑终端运行 `scrcpy`），即可在电脑桌面上低延迟显示并操控手机中的 **Game Replay Pro**。
+
+---
+
+## 09 快速上手与使用步骤 (User Guide)
 
 1. **首次授权**：打开应用，授予通知、悬浮窗以及音频权限。
 2. **开启回录**：
