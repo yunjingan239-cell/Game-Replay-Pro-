@@ -168,165 +168,167 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
     val clips by viewModel.clips.collectAsState()
     val totalStorageUsed by viewModel.totalStorageUsed.collectAsState()
 
-    Scaffold(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AppBackground),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        bottomBar = {
-            // In Game Mode, automatically hide the bottom navigation bar to maximize gaming immersion
-            if (!settings.isGameModeActive) {
-                androidx.compose.material3.NavigationBar(
-                    containerColor = PureWhite,
-                    contentColor = PrimaryBlue,
-                    tonalElevation = 0.dp,
-                    windowInsets = androidx.compose.material3.NavigationBarDefaults.windowInsets,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .drawBehind {
-                            drawLine(
-                                color = BorderSubtle,
-                                start = Offset(0f, 0f),
-                                end = Offset(size.width, 0f),
-                                strokeWidth = 1.dp.toPx()
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AppBackground),
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            bottomBar = {
+                // In Game Mode, automatically hide the bottom navigation bar to maximize gaming immersion
+                if (!settings.isGameModeActive && activePreviewClip == null) {
+                    androidx.compose.material3.NavigationBar(
+                        containerColor = PureWhite,
+                        contentColor = PrimaryBlue,
+                        tonalElevation = 0.dp,
+                        windowInsets = androidx.compose.material3.NavigationBarDefaults.windowInsets,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .drawBehind {
+                                drawLine(
+                                    color = BorderSubtle,
+                                    start = Offset(0f, 0f),
+                                    end = Offset(size.width, 0f),
+                                    strokeWidth = 1.dp.toPx()
+                                )
+                            }
+                    ) {
+                        NavigationTab.entries.forEach { tab ->
+                            val isSelected = currentTab == tab
+                            NavigationBarItem(
+                                selected = isSelected,
+                                onClick = { currentTab = tab },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                        contentDescription = tab.title,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = PrimaryBlue,
+                                    selectedTextColor = PrimaryBlue,
+                                    indicatorColor = PrimaryBlueLight,
+                                    unselectedIconColor = TextMuted,
+                                    unselectedTextColor = TextMuted
+                                ),
+                                modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
                             )
                         }
-                ) {
-                    NavigationTab.entries.forEach { tab ->
-                        val isSelected = currentTab == tab
-                        NavigationBarItem(
-                            selected = isSelected,
-                            onClick = { currentTab = tab },
-                            icon = {
-                                Icon(
-                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                    contentDescription = tab.title,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            },
-                            label = {
-                                Text(
-                                    text = tab.title,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = PrimaryBlue,
-                                selectedTextColor = PrimaryBlue,
-                                indicatorColor = PrimaryBlueLight,
-                                unselectedIconColor = TextMuted,
-                                unselectedTextColor = TextMuted
-                            ),
-                            modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
-                        )
+                    }
+                }
+            }
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(AppBackground)
+                    .statusBarsPadding()
+                    .padding(bottom = innerPadding.calculateBottomPadding())
+            ) {
+                Crossfade(
+                    targetState = currentTab,
+                    label = "screen_crossfade"
+                ) { tab ->
+                    when (tab) {
+                        NavigationTab.HOME -> {
+                            DashboardScreen(
+                                state = dashboardState,
+                                settings = settings,
+                                recentClips = clips,
+                                onStartReplay = { resultCode, resultData ->
+                                    viewModel.startReplayEngine(resultCode, resultData)
+                                },
+                                onStopReplay = {
+                                    viewModel.stopReplayEngine()
+                                },
+                                onTriggerSave = { title ->
+                                    viewModel.triggerSaveReplay(title)
+                                },
+                                onToggleFloatingOverlay = { enabled ->
+                                    viewModel.toggleFloatingOverlay(enabled)
+                                },
+                                onToggleGameMode = { enabled ->
+                                    viewModel.updateSettings(settings.copy(isGameModeActive = enabled))
+                                },
+                                onSelectGame = { game ->
+                                    viewModel.updateSettings(settings.copy(currentGameTitle = game))
+                                },
+                                onLaunchGame = { game ->
+                                    viewModel.launchGameAndSelect(game)
+                                },
+                                onNavigateToLibrary = { currentTab = NavigationTab.LIBRARY },
+                                onNavigateToGameMode = { currentTab = NavigationTab.GAMEMODE },
+                                onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
+                                onUpdateSettings = { viewModel.updateSettings(it) }
+                            )
+                        }
+                        NavigationTab.LIBRARY -> {
+                            ReplayLibraryScreen(
+                                clips = clips,
+                                totalStorageUsed = totalStorageUsed,
+                                onPlayClip = { clip ->
+                                    activePreviewClip = clip
+                                },
+                                onDeleteClip = { clip ->
+                                    viewModel.deleteClip(clip)
+                                },
+                                onUpdateTitle = { id, newTitle ->
+                                    viewModel.updateClipTitle(id, newTitle)
+                                },
+                                onToggleFavorite = { clip ->
+                                    viewModel.toggleFavorite(clip)
+                                }
+                            )
+                        }
+                        NavigationTab.GAMEMODE -> {
+                            GameModeScreen(
+                                settings = settings,
+                                detectedGames = dashboardState.detectedGames,
+                                onToggleGameMode = { enabled ->
+                                    viewModel.updateSettings(settings.copy(isGameModeActive = enabled))
+                                },
+                                onSelectGame = { game ->
+                                    viewModel.updateSettings(settings.copy(currentGameTitle = game))
+                                },
+                                onLaunchGame = { game ->
+                                    viewModel.launchGameAndSelect(game)
+                                },
+                                onUpdateSettings = { newSettings ->
+                                    viewModel.updateSettings(newSettings)
+                                }
+                            )
+                        }
+                        NavigationTab.SETTINGS -> {
+                            SettingsScreen(
+                                settings = settings,
+                                totalStorageUsed = totalStorageUsed,
+                                onUpdateSettings = { newSettings ->
+                                    viewModel.updateSettings(newSettings)
+                                },
+                                onClearBufferCache = {
+                                    viewModel.clearBufferCache()
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(AppBackground)
-                .statusBarsPadding()
-                .padding(bottom = innerPadding.calculateBottomPadding())
-        ) {
-            Crossfade(
-                targetState = currentTab,
-                label = "screen_crossfade"
-            ) { tab ->
-                when (tab) {
-                    NavigationTab.HOME -> {
-                        DashboardScreen(
-                            state = dashboardState,
-                            settings = settings,
-                            recentClips = clips,
-                            onStartReplay = { resultCode, resultData ->
-                                viewModel.startReplayEngine(resultCode, resultData)
-                            },
-                            onStopReplay = {
-                                viewModel.stopReplayEngine()
-                            },
-                            onTriggerSave = { title ->
-                                viewModel.triggerSaveReplay(title)
-                            },
-                            onToggleFloatingOverlay = { enabled ->
-                                viewModel.toggleFloatingOverlay(enabled)
-                            },
-                            onToggleGameMode = { enabled ->
-                                viewModel.updateSettings(settings.copy(isGameModeActive = enabled))
-                            },
-                            onSelectGame = { game ->
-                                viewModel.updateSettings(settings.copy(currentGameTitle = game))
-                            },
-                            onLaunchGame = { game ->
-                                viewModel.launchGameAndSelect(game)
-                            },
-                            onNavigateToLibrary = { currentTab = NavigationTab.LIBRARY },
-                            onNavigateToGameMode = { currentTab = NavigationTab.GAMEMODE },
-                            onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
-                            onUpdateSettings = { viewModel.updateSettings(it) }
-                        )
-                    }
-                    NavigationTab.LIBRARY -> {
-                        ReplayLibraryScreen(
-                            clips = clips,
-                            totalStorageUsed = totalStorageUsed,
-                            onPlayClip = { clip ->
-                                activePreviewClip = clip
-                            },
-                            onDeleteClip = { clip ->
-                                viewModel.deleteClip(clip)
-                            },
-                            onUpdateTitle = { id, newTitle ->
-                                viewModel.updateClipTitle(id, newTitle)
-                            },
-                            onToggleFavorite = { clip ->
-                                viewModel.toggleFavorite(clip)
-                            }
-                        )
-                    }
-                    NavigationTab.GAMEMODE -> {
-                        GameModeScreen(
-                            settings = settings,
-                            detectedGames = dashboardState.detectedGames,
-                            onToggleGameMode = { enabled ->
-                                viewModel.updateSettings(settings.copy(isGameModeActive = enabled))
-                            },
-                            onSelectGame = { game ->
-                                viewModel.updateSettings(settings.copy(currentGameTitle = game))
-                            },
-                            onLaunchGame = { game ->
-                                viewModel.launchGameAndSelect(game)
-                            },
-                            onUpdateSettings = { newSettings ->
-                                viewModel.updateSettings(newSettings)
-                            }
-                        )
-                    }
-                    NavigationTab.SETTINGS -> {
-                        SettingsScreen(
-                            settings = settings,
-                            totalStorageUsed = totalStorageUsed,
-                            onUpdateSettings = { newSettings ->
-                                viewModel.updateSettings(newSettings)
-                            },
-                            onClearBufferCache = {
-                                viewModel.clearBufferCache()
-                            }
-                        )
-                    }
-                }
-            }
 
-            // In-app Video Preview Player Dialog
-            activePreviewClip?.let { clip ->
-                VideoPlayerDialog(
-                    clip = clip,
-                    onDismiss = { activePreviewClip = null }
-                )
-            }
+        // In-app Full-Window Video Preview & Fullscreen Cinema Player
+        activePreviewClip?.let { clip ->
+            VideoPlayerDialog(
+                clip = clip,
+                onDismiss = { activePreviewClip = null }
+            )
         }
     }
 }

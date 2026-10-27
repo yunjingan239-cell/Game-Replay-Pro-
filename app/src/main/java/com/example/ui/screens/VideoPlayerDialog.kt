@@ -25,6 +25,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,9 +37,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,14 +59,10 @@ import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -80,30 +78,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.data.local.ReplayClip
-import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextTitle
 import com.example.util.MediaExportHelper
 import com.example.util.VideoThumbnailView
 import kotlinx.coroutines.delay
@@ -117,19 +108,18 @@ private data class VideoDisplayMeta(
 )
 
 /**
- * High-performance Esports Video Player Dialog.
+ * Full-Window Cinema Video Player Overlay.
  *
- * UX/UI Optimization:
- * - Solves the critical issue where playback controls heavily obscure gameplay details.
- * - Auto-hides all controls (center buttons, bottom HUD, gradient scrims) after 2.5s of playback.
- * - While playing without controls, presents a 100% unobstructed view with only an ultra-thin 2dp
- *   progress line hugging the bottom edge.
- * - Single-tap toggles controls visibility.
- * - Double-tap left/right seeks -5s/+5s with subtle, non-intrusive gesture feedback badges,
- *   completely replacing bulky permanent rewind/forward buttons in the center.
- * - Center play/pause button is refined and only displayed when paused or on-demand.
- * - Supports seamless fullscreen immersion mode with automatic landscape switching and strict
- *   aspect-ratio preservation (zero stretching or distortion).
+ * Designed to maximize video display area while keeping all playback and export controls
+ * minimalist and semi-transparent:
+ * 1. Hosted directly in MainActivity's root window (instead of a separate Dialog PhoneWindow)
+ *    so switching between portrait preview and fullscreen landscape updates the window bounds
+ *    natively and seamlessly without any narrow-dialog clipping or aspect-ratio distortion.
+ * 2. Initial Preview Mode: Uses 100% of available screen width for the video canvas with sleek,
+ *    minimalist semi-transparent dark glass controls (Top bar with Title, Save, Share, Close;
+ *    Bottom capsule with Play/Pause, Time, Progress Slider, Replay, Mute, Fullscreen).
+ * 3. Fullscreen Mode: Rotates the Activity window to landscape for horizontal game videos,
+ *    hides system bars, and fits the video strictly to its native aspect ratio.
  */
 @Composable
 fun VideoPlayerDialog(
@@ -147,11 +137,11 @@ fun VideoPlayerDialog(
     var totalDurationMs by remember { mutableIntStateOf((clip.durationSeconds * 1000).coerceAtLeast(1000)) }
     var isDragging by remember { mutableStateOf(false) }
     var dragProgressMs by remember { mutableFloatStateOf(0f) }
-    var isControlsVisible by remember { mutableStateOf(false) }
+    var isControlsVisible by remember { mutableStateOf(true) }
     var isSavedToGallery by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var isMuted by remember { mutableStateOf(false) }
-    var seekFeedback by remember { mutableStateOf<Pair<Boolean, String>?>(null) } // Pair(isLeft, label)
+    var seekFeedback by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
 
     // Extract initial video dimensions & rotation metadata
     val initialMeta = remember(videoFile.absolutePath, clip.resolution) {
@@ -165,27 +155,53 @@ fun VideoPlayerDialog(
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
 
-    // Automatically switch Activity orientation to landscape when entering fullscreen for landscape videos
-    DisposableEffect(isFullscreen, videoAspectRatio) {
+    // Handle Back button: exit fullscreen first, or dismiss overlay when in preview mode
+    BackHandler {
         if (isFullscreen) {
+            isFullscreen = false
+        } else {
+            onDismiss()
+        }
+    }
+
+    // Manage Activity screen orientation and system bars for Fullscreen vs Preview mode
+    DisposableEffect(isFullscreen, videoAspectRatio) {
+        val window = activity?.window
+        val insetsController = if (window != null) {
+            WindowCompat.getInsetsController(window, window.decorView)
+        } else {
+            null
+        }
+
+        if (isFullscreen) {
+            isControlsVisible = true
             if (videoAspectRatio > 1.0f) {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             } else {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             }
-        } else {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-        onDispose {
-            if (!isFullscreen) {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            insetsController?.let { controller ->
+                controller.systemBarsBehavior =
+                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                controller.hide(WindowInsetsCompat.Type.systemBars())
             }
+        } else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
         }
+
+        onDispose {}
     }
 
-    // Ensure orientation is always restored when dialog is completely dismissed
+    // Restore default orientation & system bars when player overlay is completely closed
     DisposableEffect(Unit) {
         onDispose {
+            val window = activity?.window
+            if (window != null) {
+                WindowCompat.getInsetsController(window, window.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
+            }
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
@@ -212,7 +228,7 @@ fun VideoPlayerDialog(
             if (mp.isPlaying) {
                 mp.pause()
                 isPlaying = false
-                isControlsVisible = true // Always show controls when paused
+                isControlsVisible = true
             } else {
                 mp.start()
                 isPlaying = true
@@ -230,6 +246,22 @@ fun VideoPlayerDialog(
                 mp.setVolume(1.0f, 1.0f)
             }
         } catch (_: Exception) {}
+    }
+
+    fun saveClipToGallery() {
+        if (videoFile.exists()) {
+            val result = MediaExportHelper.saveVideoToGallery(
+                context = context,
+                videoFile = videoFile,
+                title = clip.title
+            )
+            if (result.isSuccess) {
+                isSavedToGallery = true
+                Toast.makeText(context, "已保存至系统相册", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     fun updateVideoDimensions(rawW: Int, rawH: Int) {
@@ -326,14 +358,14 @@ fun VideoPlayerDialog(
                     }
                 } catch (_: Exception) {}
             }
-            delay(150)
+            delay(120)
         }
     }
 
-    // Auto-hide controls after 2.5 seconds of playing with zero interaction
-    LaunchedEffect(isControlsVisible, isPlaying, isDragging) {
+    // Auto-hide minimalist semi-transparent controls after 3.2 seconds during active playback
+    LaunchedEffect(isControlsVisible, isPlaying, isDragging, isFullscreen) {
         if (isControlsVisible && isPlaying && !isDragging) {
-            delay(2500)
+            delay(3200)
             isControlsVisible = false
         }
     }
@@ -346,337 +378,309 @@ fun VideoPlayerDialog(
         }
     }
 
-    if (isFullscreen) {
-        BackHandler { isFullscreen = false }
+    val handleSurfaceReady: (Surface) -> Unit = { newSurface ->
+        val oldSurface = surfaceRef
+        surfaceRef = newSurface
+        try {
+            mediaPlayer?.setSurface(newSurface)
+            if (isPrepared && !isPlaying) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    mediaPlayer?.seekTo(currentPosMs.toLong(), MediaPlayer.SEEK_CLOSEST)
+                } else {
+                    mediaPlayer?.seekTo(currentPosMs)
+                }
+            }
+        } catch (_: Exception) {}
+        if (oldSurface != null && oldSurface !== newSurface) {
+            try {
+                oldSurface.release()
+            } catch (_: Exception) {}
+        }
     }
 
-    Dialog(
-        onDismissRequest = {
-            if (isFullscreen) {
-                isFullscreen = false
-            } else {
-                onDismiss()
-            }
-        },
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = !isFullscreen,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = !isFullscreen
-        )
-    ) {
-        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        LaunchedEffect(dialogWindow, isFullscreen) {
-            dialogWindow?.let { window ->
-                window.setLayout(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+    val displayDurationSec = if (clip.durationSeconds in 1..1800) {
+        clip.durationSeconds
+    } else {
+        (totalDurationMs / 1000).coerceIn(1, 300)
+    }
+
+    // Root Full-Window Cinema Stage (no separate Dialog PhoneWindow)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(if (isFullscreen) Color.Black else Color.Black.copy(alpha = 0.88f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {
                 if (isFullscreen) {
-                    WindowCompat.setDecorFitsSystemWindows(window, false)
-                    insetsController.systemBarsBehavior =
-                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                    isControlsVisible = !isControlsVisible
                 } else {
-                    WindowCompat.setDecorFitsSystemWindows(window, true)
-                    insetsController.show(WindowInsetsCompat.Type.systemBars())
+                    onDismiss()
                 }
-            }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // 1. Maximized Video Canvas (100% width, strict aspect-ratio fit without any distortion)
+        val stageModifier = if (isFullscreen) {
+            Modifier.fillMaxSize()
+        } else if (videoAspectRatio < 1.0f) {
+            // Portrait video in preview mode: fill maximum screen area
+            Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.92f)
+        } else {
+            // Landscape video in preview mode: span 100% full screen width with zero side padding
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(videoAspectRatio.coerceIn(1.0f, 2.5f))
         }
 
-        val handleSurfaceReady: (Surface) -> Unit = { newSurface ->
-            val oldSurface = surfaceRef
-            surfaceRef = newSurface
-            try {
-                mediaPlayer?.setSurface(newSurface)
-                if (isPrepared && !isPlaying) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        mediaPlayer?.seekTo(currentPosMs.toLong(), MediaPlayer.SEEK_CLOSEST)
-                    } else {
-                        mediaPlayer?.seekTo(currentPosMs)
+        Box(
+            modifier = stageModifier
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) {
+                    isControlsVisible = !isControlsVisible
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            VideoPlayerSurface(
+                clip = clip,
+                videoFile = videoFile,
+                videoAspectRatio = videoAspectRatio,
+                videoWidthPx = videoWidthPx,
+                videoHeightPx = videoHeightPx,
+                isPrepared = isPrepared,
+                isPlaying = isPlaying,
+                isControlsVisible = isControlsVisible,
+                currentPosMs = currentPosMs,
+                totalDurationMs = totalDurationMs,
+                seekFeedback = seekFeedback,
+                onSurfaceReady = handleSurfaceReady,
+                onToggleControls = { isControlsVisible = !isControlsVisible },
+                onTogglePlayPause = { togglePlayPause() },
+                onSeek = { newPos -> performSeek(newPos) },
+                onSeekFeedback = { isLeft, label -> seekFeedback = Pair(isLeft, label) },
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        // 2. Minimalist Semi-Transparent Top HUD Overlay
+        AnimatedVisibility(
+            visible = isControlsVisible || !isPlaying,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.58f),
+                                Color.Black.copy(alpha = 0.22f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                    .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier)
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {},
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left: Back/Close + Title & Specs
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (isFullscreen) {
+                        MinimalistCircleIconButton(
+                            icon = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "退出全屏",
+                            onClick = { isFullscreen = false }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = clip.title,
+                            color = PureWhite.copy(alpha = 0.92f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${clip.resolution} • ${displayDurationSec}秒",
+                            color = PureWhite.copy(alpha = 0.65f),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
-            } catch (_: Exception) {}
-            if (oldSurface != null && oldSurface !== newSurface) {
-                try {
-                    oldSurface.release()
-                } catch (_: Exception) {}
-            }
-        }
 
-        if (isFullscreen) {
-            // Fullscreen Immersion Mode: Deep Cinema View with automatic landscape adaptation
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                // If the video is landscape (> 1.0f) but the host window is still in portrait (maxWidth < maxHeight),
-                // rotate the fullscreen canvas 90 degrees and swap layout width/height constraints so it always plays in landscape.
-                val shouldRotateCanvasToLandscape = videoAspectRatio > 1.0f && maxWidth < maxHeight
+                Spacer(modifier = Modifier.width(8.dp))
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .rotateFullscreenLandscapeIfNeeded(shouldRotateCanvasToLandscape)
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
+                // Right: Minimalist Semi-Transparent Action Pills (Save, Share, Fullscreen, Close)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    VideoPlayerSurface(
-                        clip = clip,
-                        videoFile = videoFile,
-                        videoAspectRatio = videoAspectRatio,
-                        videoWidthPx = videoWidthPx,
-                        videoHeightPx = videoHeightPx,
-                        isPrepared = isPrepared,
-                        isPlaying = isPlaying,
-                        isDragging = isDragging,
-                        isControlsVisible = isControlsVisible,
-                        currentPosMs = currentPosMs,
-                        totalDurationMs = totalDurationMs,
-                        dragProgressMs = dragProgressMs,
-                        seekFeedback = seekFeedback,
-                        isMuted = isMuted,
-                        isFullscreen = true,
-                        onSurfaceReady = handleSurfaceReady,
-                        onToggleControls = { isControlsVisible = !isControlsVisible },
-                        onTogglePlayPause = { togglePlayPause() },
-                        onToggleMute = { toggleMute() },
-                        onToggleFullscreen = { isFullscreen = false },
-                        onSeek = { newPos -> performSeek(newPos) },
-                        onSeekFeedback = { isLeft, label -> seekFeedback = Pair(isLeft, label) },
-                        onDragChange = { isDrag, pos ->
-                            isDragging = isDrag
-                            dragProgressMs = pos
-                            if (!isDrag) performSeek(pos.toInt())
-                        },
-                        modifier = Modifier.fillMaxSize()
+                    MinimalistGlassPillButton(
+                        icon = if (isSavedToGallery) Icons.Default.Check else Icons.Default.Download,
+                        label = if (isSavedToGallery) "已保存" else "保存",
+                        accentColor = if (isSavedToGallery) Color(0xFF10B981).copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.38f),
+                        onClick = { saveClipToGallery() }
                     )
 
-                    // Top Bar in Fullscreen
-                    AnimatedVisibility(
-                        visible = isControlsVisible,
-                        enter = fadeIn(),
-                        exit = fadeOut(),
-                        modifier = Modifier.align(Alignment.TopCenter)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
-                                    )
-                                )
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = { isFullscreen = false }) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Exit Fullscreen",
-                                        tint = PureWhite
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column {
-                                    Text(
-                                        text = clip.title,
-                                        color = PureWhite,
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
-                                    Text(
-                                        text = "${clip.resolution} • ${(totalDurationMs / 1000).coerceAtLeast(1)}秒",
-                                        color = PureWhite.copy(alpha = 0.7f),
-                                        fontSize = 11.sp
-                                    )
-                                }
-                            }
+                    MinimalistGlassPillButton(
+                        icon = Icons.Default.Share,
+                        label = "分享",
+                        accentColor = Color.Black.copy(alpha = 0.38f),
+                        onClick = { shareVideo(context, videoFile) }
+                    )
 
-                            IconButton(onClick = { toggleMute() }) {
-                                Icon(
-                                    imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                                    contentDescription = "Mute",
-                                    tint = PureWhite
-                                )
+                    MinimalistCircleIconButton(
+                        icon = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        contentDescription = if (isFullscreen) "退出全屏" else "全屏播放",
+                        onClick = { isFullscreen = !isFullscreen }
+                    )
+
+                    MinimalistCircleIconButton(
+                        icon = Icons.Default.Close,
+                        contentDescription = "关闭",
+                        onClick = {
+                            if (isFullscreen) {
+                                isFullscreen = false
+                            } else {
+                                onDismiss()
                             }
                         }
-                    }
+                    )
                 }
             }
-        } else {
-            // Standard Dialog Card Mode (optimized for non-obstruction)
-            Surface(
+        }
+
+        // 3. Minimalist Semi-Transparent Bottom Playback Capsule Overlay
+        AnimatedVisibility(
+            visible = isControlsVisible || !isPlaying,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            val displayPos = if (isDragging) dragProgressMs.toInt() else currentPosMs
+            val currentSliderVal = if (isDragging) dragProgressMs else currentPosMs.toFloat()
+            val maxSliderVal = totalDurationMs.toFloat().coerceAtLeast(1f)
+            val safeSliderVal = currentSliderVal.coerceIn(0f, maxSliderVal)
+
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.95f)
-                    .clip(RoundedCornerShape(24.dp))
-                    .border(1.dp, BorderSubtle, RoundedCornerShape(24.dp)),
-                color = PureWhite,
-                shadowElevation = 8.dp
+                    .fillMaxWidth()
+                    .then(if (!isFullscreen) Modifier.navigationBarsPadding() else Modifier)
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {}
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Color.Black.copy(alpha = 0.42f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // 1. Header with Title and Control Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    // Play / Pause
+                    IconButton(
+                        onClick = { togglePlayPause() },
+                        modifier = Modifier.size(30.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = clip.title,
-                                color = TextTitle,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            val displayDurationSec = if (clip.durationSeconds in 1..1800) {
-                                clip.durationSeconds
-                            } else {
-                                (totalDurationMs / 1000).coerceIn(1, 300)
-                            }
-                            Text(
-                                text = "规格 ${clip.resolution} • ${displayDurationSec}秒",
-                                color = PrimaryBlue,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            // Quick Fullscreen Expansion Button
-                            IconButton(onClick = { isFullscreen = true }, modifier = Modifier.size(36.dp)) {
-                                Icon(
-                                    imageVector = Icons.Default.Fullscreen,
-                                    contentDescription = "Expand Fullscreen",
-                                    tint = PrimaryBlue
-                                )
-                            }
-                            IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    tint = TextMuted
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // 2. Video Player Frame (Unobstructed View)
-                    val cardVideoModifier = if (videoAspectRatio >= 1.0f) {
-                        Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(videoAspectRatio.coerceIn(1.0f, 3.0f))
-                    } else {
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 420.dp)
-                            .aspectRatio(videoAspectRatio.coerceIn(0.35f, 1.0f))
-                    }
-
-                    Box(
-                        modifier = cardVideoModifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color(0xFF070B14)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        VideoPlayerSurface(
-                            clip = clip,
-                            videoFile = videoFile,
-                            videoAspectRatio = videoAspectRatio,
-                            videoWidthPx = videoWidthPx,
-                            videoHeightPx = videoHeightPx,
-                            isPrepared = isPrepared,
-                            isPlaying = isPlaying,
-                            isDragging = isDragging,
-                            isControlsVisible = isControlsVisible,
-                            currentPosMs = currentPosMs,
-                            totalDurationMs = totalDurationMs,
-                            dragProgressMs = dragProgressMs,
-                            seekFeedback = seekFeedback,
-                            isMuted = isMuted,
-                            isFullscreen = false,
-                            onSurfaceReady = handleSurfaceReady,
-                            onToggleControls = { isControlsVisible = !isControlsVisible },
-                            onTogglePlayPause = { togglePlayPause() },
-                            onToggleMute = { toggleMute() },
-                            onToggleFullscreen = { isFullscreen = true },
-                            onSeek = { newPos -> performSeek(newPos) },
-                            onSeekFeedback = { isLeft, label -> seekFeedback = Pair(isLeft, label) },
-                            onDragChange = { isDrag, pos ->
-                                isDragging = isDrag
-                                dragProgressMs = pos
-                                if (!isDrag) performSeek(pos.toInt())
-                            },
-                            modifier = Modifier.fillMaxSize()
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            tint = PureWhite,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    // Current / Total Time
+                    Text(
+                        text = "${formatDurationMs(displayPos)}/${formatDurationMs(totalDurationMs)}",
+                        color = PureWhite.copy(alpha = 0.88f),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium
+                    )
 
-                    // 3. Action Buttons: Save to Gallery & Share
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    // Slim Progress Slider
+                    Slider(
+                        value = safeSliderVal,
+                        onValueChange = { newValue ->
+                            isDragging = true
+                            dragProgressMs = newValue
+                        },
+                        onValueChangeFinished = {
+                            isDragging = false
+                            performSeek(dragProgressMs.toInt())
+                        },
+                        valueRange = 0f..maxSliderVal,
+                        colors = SliderDefaults.colors(
+                            thumbColor = PureWhite,
+                            activeTrackColor = PrimaryBlue.copy(alpha = 0.9f),
+                            inactiveTrackColor = Color.White.copy(alpha = 0.25f)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(26.dp)
+                    )
+
+                    // Replay from 00:00
+                    IconButton(
+                        onClick = { performSeek(0) },
+                        modifier = Modifier.size(28.dp)
                     ) {
-                        Button(
-                            onClick = {
-                                if (videoFile.exists()) {
-                                    val result = MediaExportHelper.saveVideoToGallery(
-                                        context = context,
-                                        videoFile = videoFile,
-                                        title = clip.title
-                                    )
-                                    if (result.isSuccess) {
-                                        isSavedToGallery = true
-                                        Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isSavedToGallery) Color(0xFF10B981) else PrimaryBlue,
-                                contentColor = PureWhite
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.weight(1.2f)
-                        ) {
-                            Icon(
-                                imageVector = if (isSavedToGallery) Icons.Default.Check else Icons.Default.Download,
-                                contentDescription = "Save to Gallery",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isSavedToGallery) "已保存至相册" else "保存到相册",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Replay,
+                            contentDescription = "重播",
+                            tint = PureWhite.copy(alpha = 0.85f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
 
-                        OutlinedButton(
-                            onClick = { shareVideo(context, videoFile) },
-                            shape = RoundedCornerShape(12.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, BorderSubtle),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(16.dp), tint = TextTitle)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("分享回录", color = TextTitle, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        }
+                    // Mute / Unmute
+                    IconButton(
+                        onClick = { toggleMute() },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                            contentDescription = "静音切换",
+                            tint = if (isMuted) Color(0xFFFF6B6B) else PureWhite.copy(alpha = 0.85f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    // Fullscreen / Expand Toggle
+                    IconButton(
+                        onClick = { isFullscreen = !isFullscreen },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                            contentDescription = if (isFullscreen) "退出全屏" else "全屏放大",
+                            tint = PureWhite,
+                            modifier = Modifier.size(19.dp)
+                        )
                     }
                 }
             }
@@ -684,8 +688,64 @@ fun VideoPlayerDialog(
     }
 }
 
+@Composable
+private fun MinimalistGlassPillButton(
+    icon: ImageVector,
+    label: String,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(accentColor)
+            .border(0.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = PureWhite.copy(alpha = 0.92f),
+            modifier = Modifier.size(13.dp)
+        )
+        Text(
+            text = label,
+            color = PureWhite.copy(alpha = 0.92f),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
+        )
+    }
+}
+
+@Composable
+private fun MinimalistCircleIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.38f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = PureWhite.copy(alpha = 0.92f),
+            modifier = Modifier.size(16.dp)
+        )
+    }
+}
+
 /**
- * Reusable, High-Fidelity Video Surface with Unobtrusive Modern Overlay and Strict Aspect-Ratio Fitting.
+ * Reusable, High-Fidelity Video Surface with Strict Aspect-Ratio Fitting and Post-Layout Matrix Sync.
  */
 @Composable
 private fun VideoPlayerSurface(
@@ -696,22 +756,15 @@ private fun VideoPlayerSurface(
     videoHeightPx: Int,
     isPrepared: Boolean,
     isPlaying: Boolean,
-    isDragging: Boolean,
     isControlsVisible: Boolean,
     currentPosMs: Int,
     totalDurationMs: Int,
-    dragProgressMs: Float,
     seekFeedback: Pair<Boolean, String>?,
-    isMuted: Boolean,
-    isFullscreen: Boolean,
     onSurfaceReady: (Surface) -> Unit,
     onToggleControls: () -> Unit,
     onTogglePlayPause: () -> Unit,
-    onToggleMute: () -> Unit,
-    onToggleFullscreen: () -> Unit,
     onSeek: (Int) -> Unit,
     onSeekFeedback: (Boolean, String) -> Unit,
-    onDragChange: (Boolean, Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val safeAspectRatio = videoAspectRatio.coerceIn(0.35f, 3.0f)
@@ -724,7 +777,6 @@ private fun VideoPlayerSurface(
                         onToggleControls()
                     },
                     onDoubleTap = { offset ->
-                        // Double-tap left half seeks -5s, right half seeks +5s
                         val isLeft = offset.x < size.width / 2
                         val delta = if (isLeft) -5000 else 5000
                         val target = (currentPosMs + delta).coerceIn(0, totalDurationMs)
@@ -764,7 +816,7 @@ private fun VideoPlayerSurface(
                         )
                     }
 
-                    // 2. Hardware TextureView Renderer with Center-Fit Matrix Protection
+                    // 2. Hardware TextureView Renderer with Post-Layout Center-Fit Matrix Protection
                     AndroidView(
                         factory = { ctx ->
                             TextureView(ctx).apply {
@@ -772,14 +824,29 @@ private fun VideoPlayerSurface(
                                     ViewGroup.LayoutParams.MATCH_PARENT,
                                     ViewGroup.LayoutParams.MATCH_PARENT
                                 )
+                                tag = Pair(videoWidthPx, videoHeightPx)
+                                addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
+                                    val w = right - left
+                                    val h = bottom - top
+                                    val dims = (view.tag as? Pair<*, *>)
+                                    val vw = (dims?.first as? Int) ?: videoWidthPx
+                                    val vh = (dims?.second as? Int) ?: videoHeightPx
+                                    applyCenterFitMatrix(this, w, h, vw, vh)
+                                }
                                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                                     override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
-                                        applyCenterFitMatrix(this@apply, width, height, videoWidthPx, videoHeightPx)
+                                        val dims = (tag as? Pair<*, *>)
+                                        val vw = (dims?.first as? Int) ?: videoWidthPx
+                                        val vh = (dims?.second as? Int) ?: videoHeightPx
+                                        applyCenterFitMatrix(this@apply, width, height, vw, vh)
                                         onSurfaceReady(Surface(st))
                                     }
 
                                     override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
-                                        applyCenterFitMatrix(this@apply, width, height, videoWidthPx, videoHeightPx)
+                                        val dims = (tag as? Pair<*, *>)
+                                        val vw = (dims?.first as? Int) ?: videoWidthPx
+                                        val vh = (dims?.second as? Int) ?: videoHeightPx
+                                        applyCenterFitMatrix(this@apply, width, height, vw, vh)
                                     }
 
                                     override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
@@ -793,20 +860,23 @@ private fun VideoPlayerSurface(
                             }
                         },
                         update = { textureView ->
-                            applyCenterFitMatrix(
-                                textureView = textureView,
-                                viewWidth = textureView.width,
-                                viewHeight = textureView.height,
-                                videoWidth = videoWidthPx,
-                                videoHeight = videoHeightPx
-                            )
+                            textureView.tag = Pair(videoWidthPx, videoHeightPx)
+                            textureView.post {
+                                applyCenterFitMatrix(
+                                    textureView = textureView,
+                                    viewWidth = textureView.width,
+                                    viewHeight = textureView.height,
+                                    videoWidth = videoWidthPx,
+                                    videoHeight = videoHeightPx
+                                )
+                            }
                         },
                         modifier = Modifier.fillMaxSize()
                     )
                 }
             }
 
-            // 3. Center Play/Pause indicator - ONLY shown when paused or when controls are active
+            // 3. Minimalist Semi-Transparent Center Play/Pause Button
             AnimatedVisibility(
                 visible = isControlsVisible || !isPlaying,
                 enter = fadeIn() + scaleIn(initialScale = 0.85f),
@@ -814,157 +884,42 @@ private fun VideoPlayerSurface(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(46.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
+                        .background(Color.Black.copy(alpha = 0.36f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.22f), CircleShape)
                         .clickable { onTogglePlayPause() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = PureWhite,
-                        modifier = Modifier.size(26.dp)
+                        contentDescription = if (isPlaying) "暂停" else "播放",
+                        tint = PureWhite.copy(alpha = 0.92f),
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
-            // 4. Subtle Top Overlay in non-fullscreen (Mute quick toggle)
-            if (!isFullscreen) {
-                AnimatedVisibility(
-                    visible = isControlsVisible,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.TopEnd)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(6.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(30.dp)
-                                .clip(CircleShape)
-                                .background(Color.Black.copy(alpha = 0.45f))
-                                .clickable { onToggleMute() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                                contentDescription = "Mute",
-                                tint = PureWhite,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 5. Sleek Bottom Control Bar (Semi-transparent gradient scrim, auto-fades out)
-            AnimatedVisibility(
-                visible = isControlsVisible,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.Black.copy(alpha = 0.70f)
-                                )
-                            )
-                        )
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        // Replay from beginning
-                        IconButton(
-                            onClick = { onSeek(0) },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Replay,
-                                contentDescription = "Replay",
-                                tint = PureWhite,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                        // Compact Timestamp (00:01 / 00:25)
-                        val displayPos = if (isDragging) dragProgressMs.toInt() else currentPosMs
-                        Text(
-                            text = "${formatDurationMs(displayPos)} / ${formatDurationMs(totalDurationMs)}",
-                            color = PureWhite.copy(alpha = 0.9f),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Medium
-                        )
-
-                        // Ultra-slim interactive timeline slider
-                        val currentVal = if (isDragging) dragProgressMs else currentPosMs.toFloat()
-                        val safeVal = currentVal.coerceIn(0f, totalDurationMs.toFloat().coerceAtLeast(1f))
-
-                        Slider(
-                            value = safeVal,
-                            onValueChange = { newValue ->
-                                onDragChange(true, newValue)
-                            },
-                            onValueChangeFinished = {
-                                onDragChange(false, dragProgressMs)
-                            },
-                            valueRange = 0f..totalDurationMs.toFloat().coerceAtLeast(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = PureWhite,
-                                activeTrackColor = PrimaryBlue,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.35f)
-                            ),
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // Fullscreen toggle button
-                        IconButton(
-                            onClick = { onToggleFullscreen() },
-                            modifier = Modifier.size(28.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                                contentDescription = "Fullscreen",
-                                tint = PureWhite,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 6. Ultra-thin 2dp bottom edge line when controls are hidden (Zero screen blockage)
-            if (!isControlsVisible) {
+            // 4. Ultra-thin 2dp bottom progress line when controls auto-hide
+            if (!isControlsVisible && isPlaying) {
                 val progressFraction = (currentPosMs.toFloat() / totalDurationMs.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .fillMaxWidth(progressFraction)
                         .height(2.dp)
-                        .background(PrimaryBlue.copy(alpha = 0.85f))
+                        .background(PrimaryBlue.copy(alpha = 0.75f))
                 )
             }
 
-            // 7. Double-tap seek feedback badge (-5s / +5s)
+            // 5. Double-tap seek feedback badge (-5s / +5s)
             seekFeedback?.let { (isLeft, label) ->
                 Box(
                     modifier = Modifier
                         .align(if (isLeft) Alignment.CenterStart else Alignment.CenterEnd)
                         .padding(horizontal = 24.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Black.copy(alpha = 0.65f))
+                        .background(Color.Black.copy(alpha = 0.55f))
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -998,39 +953,8 @@ private fun VideoPlayerSurface(
 }
 
 /**
- * Rotates a fullscreen container 90 degrees clockwise and swaps width/height layout constraints
- * when playing a landscape video inside a portrait window (e.g. when device auto-rotate is locked
- * or the Dialog window remains in portrait orientation).
- */
-private fun Modifier.rotateFullscreenLandscapeIfNeeded(rotate: Boolean): Modifier =
-    if (!rotate) {
-        this
-    } else {
-        this
-            .graphicsLayer {
-                rotationZ = 90f
-            }
-            .layout { measurable, constraints ->
-                val placeable = measurable.measure(
-                    Constraints(
-                        minWidth = constraints.minHeight,
-                        maxWidth = constraints.maxHeight,
-                        minHeight = constraints.minWidth,
-                        maxHeight = constraints.maxWidth
-                    )
-                )
-                layout(constraints.maxWidth, constraints.maxHeight) {
-                    placeable.place(
-                        x = (constraints.maxWidth - placeable.width) / 2,
-                        y = (constraints.maxHeight - placeable.height) / 2
-                    )
-                }
-            }
-    }
-
-/**
- * Applies a hardware center-fit Matrix transform to TextureView so video frames never stretch or distort
- * even during intermediate layout/orientation transitions.
+ * Applies a hardware center-fit Matrix transform to TextureView using post-layout bounds
+ * so video frames never stretch or distort during orientation transitions.
  */
 private fun applyCenterFitMatrix(
     textureView: TextureView,

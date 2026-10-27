@@ -25,34 +25,102 @@ class ReplayMuxer(private val context: Context) {
         }
     }
 
+    private data class ChunkTrackMeta(
+        val file: File,
+        val videoWidth: Int,
+        val videoHeight: Int,
+        val videoMime: String
+    )
+
     fun stitchChunks(chunks: List<VideoChunk>, gameTitle: String): File? {
         if (chunks.isEmpty()) {
             Log.w(tag, "No video chunks provided to stitch")
             return null
         }
 
-        val validFiles = chunks.map { it.file }.filter { it.exists() && it.length() > 0 }
-        if (validFiles.isEmpty()) {
+        val candidateFiles = chunks.map { it.file }.filter { it.exists() && it.length() > 512L }
+        if (candidateFiles.isEmpty()) {
             Log.w(tag, "All chunk files are missing or empty")
             return null
         }
 
         val datePart = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
         val timePart = SimpleDateFormat("HHmmss", Locale.getDefault()).format(Date())
-        val outputFile = File(outputDirectory, "${datePart}_${timePart}.mp4")
+        val outputFile = File(outputDirectory, "${datePart}_${timePart}_${System.currentTimeMillis() % 1000}.mp4")
+
+        // Filter chunks so we only stitch chunks matching the NEWEST chunk's resolution & codec
+        // (prevents mixing Portrait app lobby chunks with Landscape in-game chunks)
+        val metas = mutableListOf<ChunkTrackMeta>()
+        for (file in candidateFiles) {
+            val ext = MediaExtractor()
+            try {
+                ext.setDataSource(file.absolutePath)
+                var vWidth = 0
+                var vHeight = 0
+                var vMime = ""
+                for (i in 0 until ext.trackCount) {
+                    val fmt = ext.getTrackFormat(i)
+                    val mime = fmt.getString(MediaFormat.KEY_MIME) ?: ""
+                    if (mime.startsWith("video/")) {
+                        vMime = mime
+                        vWidth = if (fmt.containsKey(MediaFormat.KEY_WIDTH)) fmt.getInteger(MediaFormat.KEY_WIDTH) else 0
+                        vHeight = if (fmt.containsKey(MediaFormat.KEY_HEIGHT)) fmt.getInteger(MediaFormat.KEY_HEIGHT) else 0
+                        break
+                    }
+                }
+                if (vMime.isNotEmpty() && vWidth > 0 && vHeight > 0) {
+                    metas.add(ChunkTrackMeta(file, vWidth, vHeight, vMime))
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "Skipping unreadable chunk ${file.name}: ${e.message}")
+            } finally {
+                try {
+                    ext.release()
+                } catch (_: Exception) {}
+            }
+        }
+
+        if (metas.isEmpty()) {
+            return try {
+                candidateFiles.last().copyTo(outputFile, overwrite = true)
+                outputFile
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        val targetMeta = metas.last()
+        val validFiles = metas.filter {
+            it.videoWidth == targetMeta.videoWidth &&
+                it.videoHeight == targetMeta.videoHeight &&
+                it.videoMime == targetMeta.videoMime
+        }.map { it.file }
+
+        // Fast-path: If only 1 chunk matches, copy directly in < 5ms without re-muxing!
+        if (validFiles.size == 1) {
+            return try {
+                validFiles.first().copyTo(outputFile, overwrite = true)
+                Log.d(tag, "Single chunk fast-copy completed: ${outputFile.name}")
+                outputFile
+            } catch (e: Exception) {
+                Log.e(tag, "Fast copy failed", e)
+                null
+            }
+        }
 
         var muxer: MediaMuxer? = null
+        val extractors = mutableListOf<MediaExtractor>()
         try {
             muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
-            val extractors = validFiles.map { file ->
-                MediaExtractor().apply { setDataSource(file.absolutePath) }
+            for (file in validFiles) {
+                extractors.add(MediaExtractor().apply { setDataSource(file.absolutePath) })
             }
 
             var videoFormat: MediaFormat? = null
             var audioFormat: MediaFormat? = null
 
-            // Dynamically scan chunks to find the pristine video and audio formats
-            for (ext in extractors) {
+            // Scan from newest chunk first for pristine video and audio formats
+            for (ext in extractors.asReversed()) {
                 for (i in 0 until ext.trackCount) {
                     val format = ext.getTrackFormat(i)
                     val mime = format.getString(MediaFormat.KEY_MIME) ?: ""
@@ -67,18 +135,15 @@ class ReplayMuxer(private val context: Context) {
             }
 
             if (videoFormat == null) {
-                Log.e(tag, "No video track found across chunks, falling back to file copy")
-                extractors.forEach { it.release() }
+                extractors.forEach { try { it.release() } catch (_: Exception) {} }
                 muxer.release()
                 outputFile.delete()
-                val newest = validFiles.last()
-                newest.copyTo(outputFile, overwrite = true)
+                validFiles.last().copyTo(outputFile, overwrite = true)
                 return outputFile
             }
 
             val muxerVideoTrack = muxer.addTrack(videoFormat)
             val muxerAudioTrack = if (audioFormat != null) muxer.addTrack(audioFormat) else -1
-            Log.d(tag, "Stitching output tracks: videoTrack=$muxerVideoTrack, audioTrack=$muxerAudioTrack (audioPresent=${audioFormat != null})")
 
             muxer.start()
 
@@ -154,28 +219,29 @@ class ReplayMuxer(private val context: Context) {
                     extractor.advance()
                 }
 
-                // Both tracks advance by the same chunk duration so audio and video never drift
                 val chunkDurationUs = maxOf(chunkMaxVideoPtsUs, chunkMaxAudioPtsUs)
                 globalVideoPtsOffsetUs += (chunkDurationUs + 16_666L)
                 globalAudioPtsOffsetUs += (chunkDurationUs + 16_666L)
                 extractor.release()
             }
+            extractors.clear()
 
             muxer.stop()
             muxer.release()
             Log.d(tag, "Successfully stitched and synchronized ${validFiles.size} chunks into ${outputFile.name}")
             return outputFile
         } catch (e: Exception) {
-            Log.e(tag, "Error during MediaMuxer stitching, using fallback", e)
+            Log.e(tag, "Error during MediaMuxer stitching, using fallback copy", e)
+            extractors.forEach { try { it.release() } catch (_: Exception) {} }
             try {
                 muxer?.release()
             } catch (_: Exception) {}
-            try {
+            return try {
                 validFiles.last().copyTo(outputFile, overwrite = true)
-                return outputFile
+                outputFile
             } catch (err: Exception) {
                 Log.e(tag, "Fallback copy failed", err)
-                return null
+                null
             }
         }
     }

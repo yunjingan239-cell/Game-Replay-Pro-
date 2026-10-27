@@ -9,20 +9,16 @@ import java.io.File
 import kotlin.math.sin
 
 /**
- * Generator that creates standards-compliant playable MP4 gaming replay clips
- * with BOTH high-definition video and high-fidelity AAC audio.
- * Used for synthetic replay buffering, initial buffering fallback, and instant save fallbacks.
+ * Lightweight, ultra-fast generator that creates standards-compliant playable MP4 gaming replay clips
+ * with BOTH video and AAC audio in < 120ms when operating in synthetic/preview mode.
  */
 object FallbackVideoGenerator {
 
     private const val TAG = "FallbackVideoGen"
 
-    /**
-     * Generates a valid H.264/AVC + AAC MP4 video clip with animated game replay telemetry and sound.
-     */
     fun generateVideo(
         outputFile: File,
-        durationSeconds: Int = 10,
+        durationSeconds: Int = 5,
         gameTitle: String = "王者荣耀",
         width: Int = 1280,
         height: Int = 720,
@@ -38,12 +34,18 @@ object FallbackVideoGenerator {
                 outputFile.delete()
             }
 
-            // 1. Configure Video Encoder (H.264 / AVC)
+            // Cap synthetic fallback dimensions and FPS so CPU generation completes in < 120ms without affecting gameplay
+            val isLandscape = width >= height
+            val safeWidth = if (isLandscape) 640 else 360
+            val safeHeight = if (isLandscape) 360 else 640
+            val safeFps = 15
+            val safeDurationSec = durationSeconds.coerceIn(2, 4)
+
             val videoMime = MediaFormat.MIMETYPE_VIDEO_AVC
-            val videoFormat = MediaFormat.createVideoFormat(videoMime, width, height).apply {
+            val videoFormat = MediaFormat.createVideoFormat(videoMime, safeWidth, safeHeight).apply {
                 setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-                setInteger(MediaFormat.KEY_BIT_RATE, 2_500_000)
-                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                setInteger(MediaFormat.KEY_BIT_RATE, 1_000_000)
+                setInteger(MediaFormat.KEY_FRAME_RATE, safeFps)
                 setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
             }
             videoCodec = MediaCodec.createEncoderByType(videoMime).apply {
@@ -51,7 +53,6 @@ object FallbackVideoGenerator {
                 start()
             }
 
-            // 2. Configure Audio Encoder (AAC 44.1kHz Stereo)
             val audioMime = MediaFormat.MIMETYPE_AUDIO_AAC
             val sampleRate = 44100
             val channelCount = 2
@@ -70,17 +71,42 @@ object FallbackVideoGenerator {
             var audioTrackIndex = -1
             var isMuxerStarted = false
 
-            val totalVideoFrames = (fps * durationSeconds).coerceAtLeast(30)
-            val frameDurationUs = 1_000_000L / fps
+            val totalVideoFrames = (safeFps * safeDurationSec).coerceAtLeast(15)
+            val frameDurationUs = 1_000_000L / safeFps
             val videoBufferInfo = MediaCodec.BufferInfo()
             val audioBufferInfo = MediaCodec.BufferInfo()
 
-            val yuvFrameSize = width * height * 3 / 2
+            val ySize = safeWidth * safeHeight
+            val uSize = ySize / 4
+            val yuvFrameSize = ySize * 3 / 2
             val yuvFrame = ByteArray(yuvFrameSize)
+
+            // Pre-initialize base YUV grid once outside the loop (zero per-frame full-array CPU overhead)
+            yuvFrame.fill(145.toByte(), 0, ySize)
+            for (y in 0 until safeHeight step 16) {
+                val rowOffset = y * safeWidth
+                for (x in 0 until safeWidth) {
+                    yuvFrame[rowOffset + x] = 210.toByte()
+                }
+            }
+            yuvFrame.fill(190.toByte(), ySize, ySize + uSize)
+            yuvFrame.fill(70.toByte(), ySize + uSize, yuvFrameSize)
 
             val pcmFrameSize = 4096
             val pcmBuffer = ByteArray(pcmFrameSize)
-            val totalAudioFrames = (sampleRate.toLong() * durationSeconds * channelCount * 2)
+            var synthPhase = 0.0
+            val framesPerPcm = pcmFrameSize / 4
+            for (i in 0 until framesPerPcm) {
+                synthPhase += 2.0 * Math.PI * 440.0 / sampleRate
+                val sample = (sin(synthPhase) * 6000.0).toInt().coerceIn(-32768, 32767).toShort()
+                val idx = i * 4
+                pcmBuffer[idx] = (sample.toInt() and 0xFF).toByte()
+                pcmBuffer[idx + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
+                pcmBuffer[idx + 2] = (sample.toInt() and 0xFF).toByte()
+                pcmBuffer[idx + 3] = ((sample.toInt() shr 8) and 0xFF).toByte()
+            }
+
+            val totalAudioBytes = sampleRate.toLong() * safeDurationSec * channelCount * 2
 
             var videoFrameCount = 0
             var audioBytesFed = 0L
@@ -88,16 +114,19 @@ object FallbackVideoGenerator {
             var isAudioEos = false
             var isVideoDone = false
             var isAudioDone = false
-            var synthPhase = 0.0
 
             while (!isVideoDone || !isAudioDone) {
-                // Feed Video
                 if (!isVideoEos && videoFrameCount < totalVideoFrames) {
-                    val inputIndex = videoCodec.dequeueInputBuffer(5_000)
+                    val inputIndex = videoCodec.dequeueInputBuffer(2_000)
                     if (inputIndex >= 0) {
                         val inputBuffer = videoCodec.getInputBuffer(inputIndex)
                         if (inputBuffer != null) {
-                            fillYuvFrame(yuvFrame, width, height, videoFrameCount, totalVideoFrames)
+                            // Lightweight animated highlight bar for current frame
+                            val barY = ((videoFrameCount * 8) % safeHeight).coerceIn(0, safeHeight - 1)
+                            val barOffset = barY * safeWidth
+                            for (x in 0 until safeWidth) {
+                                yuvFrame[barOffset + x] = 245.toByte()
+                            }
                             inputBuffer.clear()
                             inputBuffer.put(yuvFrame)
                             videoCodec.queueInputBuffer(
@@ -109,29 +138,22 @@ object FallbackVideoGenerator {
                         }
                     }
                 } else if (!isVideoEos) {
-                    val inputIndex = videoCodec.dequeueInputBuffer(5_000)
+                    val inputIndex = videoCodec.dequeueInputBuffer(2_000)
                     if (inputIndex >= 0) {
-                        videoCodec.queueInputBuffer(inputIndex, 0, 0, videoFrameCount * frameDurationUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        videoCodec.queueInputBuffer(
+                            inputIndex, 0, 0,
+                            videoFrameCount * frameDurationUs,
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                        )
                         isVideoEos = true
                     }
                 }
 
-                // Feed Audio (Esports game chime synth tone)
-                if (!isAudioEos && audioBytesFed < totalAudioFrames) {
-                    val inputIndex = audioCodec.dequeueInputBuffer(5_000)
+                if (!isAudioEos && audioBytesFed < totalAudioBytes) {
+                    val inputIndex = audioCodec.dequeueInputBuffer(2_000)
                     if (inputIndex >= 0) {
                         val inputBuffer = audioCodec.getInputBuffer(inputIndex)
                         if (inputBuffer != null) {
-                            val frames = pcmFrameSize / 4
-                            for (i in 0 until frames) {
-                                synthPhase += 2.0 * Math.PI * 440.0 / sampleRate
-                                val sample = (sin(synthPhase) * 7000.0).toInt().coerceIn(-32768, 32767).toShort()
-                                val idx = i * 4
-                                pcmBuffer[idx] = (sample.toInt() and 0xFF).toByte()
-                                pcmBuffer[idx + 1] = ((sample.toInt() shr 8) and 0xFF).toByte()
-                                pcmBuffer[idx + 2] = (sample.toInt() and 0xFF).toByte()
-                                pcmBuffer[idx + 3] = ((sample.toInt() shr 8) and 0xFF).toByte()
-                            }
                             inputBuffer.clear()
                             inputBuffer.put(pcmBuffer)
                             val ptsUs = (audioBytesFed / (channelCount * 2)) * 1_000_000L / sampleRate
@@ -140,7 +162,7 @@ object FallbackVideoGenerator {
                         }
                     }
                 } else if (!isAudioEos) {
-                    val inputIndex = audioCodec.dequeueInputBuffer(5_000)
+                    val inputIndex = audioCodec.dequeueInputBuffer(2_000)
                     if (inputIndex >= 0) {
                         val ptsUs = (audioBytesFed / (channelCount * 2)) * 1_000_000L / sampleRate
                         audioCodec.queueInputBuffer(inputIndex, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
@@ -148,14 +170,16 @@ object FallbackVideoGenerator {
                     }
                 }
 
-                // Drain Video
                 if (!isVideoDone) {
-                    val outIndex = videoCodec.dequeueOutputBuffer(videoBufferInfo, 5_000)
+                    val outIndex = videoCodec.dequeueOutputBuffer(videoBufferInfo, 2_000)
                     when {
                         outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                             if (videoTrackIndex == -1) {
                                 videoTrackIndex = muxer.addTrack(videoCodec.outputFormat)
-                                checkStartMuxer(muxer, videoTrackIndex, audioTrackIndex) { isMuxerStarted = true }
+                                if (videoTrackIndex != -1 && audioTrackIndex != -1 && !isMuxerStarted) {
+                                    muxer.start()
+                                    isMuxerStarted = true
+                                }
                             }
                         }
                         outIndex >= 0 -> {
@@ -173,14 +197,16 @@ object FallbackVideoGenerator {
                     }
                 }
 
-                // Drain Audio
                 if (!isAudioDone) {
-                    val outIndex = audioCodec.dequeueOutputBuffer(audioBufferInfo, 5_000)
+                    val outIndex = audioCodec.dequeueOutputBuffer(audioBufferInfo, 2_000)
                     when {
                         outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                             if (audioTrackIndex == -1) {
                                 audioTrackIndex = muxer.addTrack(audioCodec.outputFormat)
-                                checkStartMuxer(muxer, videoTrackIndex, audioTrackIndex) { isMuxerStarted = true }
+                                if (videoTrackIndex != -1 && audioTrackIndex != -1 && !isMuxerStarted) {
+                                    muxer.start()
+                                    isMuxerStarted = true
+                                }
                             }
                         }
                         outIndex >= 0 -> {
@@ -199,10 +225,9 @@ object FallbackVideoGenerator {
                 }
             }
 
-            Log.i(TAG, "Generated playable replay MP4 with video & audio: ${outputFile.name} (${outputFile.length()} bytes)")
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to generate video with audio", e)
+            Log.e(TAG, "Failed to generate fallback video", e)
             return false
         } finally {
             try {
@@ -217,40 +242,6 @@ object FallbackVideoGenerator {
                 muxer?.stop()
                 muxer?.release()
             } catch (_: Exception) {}
-        }
-    }
-
-    private fun checkStartMuxer(muxer: MediaMuxer, videoTrack: Int, audioTrack: Int, onStarted: () -> Unit) {
-        if (videoTrack != -1 && audioTrack != -1) {
-            muxer.start()
-            onStarted()
-        }
-    }
-
-    private fun fillYuvFrame(yuv: ByteArray, width: Int, height: Int, frameIndex: Int, totalFrames: Int) {
-        val ySize = width * height
-        val uSize = ySize / 4
-
-        val baseLuma = (145 + (frameIndex * 3 % 25)).toByte()
-
-        for (i in 0 until ySize) {
-            val y = i / width
-            val x = i % width
-            if (y % 16 == 0 || x % 16 == 0) {
-                yuv[i] = (215).toByte()
-            } else if (x == (frameIndex * 14) % width) {
-                yuv[i] = (245).toByte()
-            } else {
-                yuv[i] = baseLuma
-            }
-        }
-
-        val uVal = 190.toByte()
-        val vVal = 70.toByte()
-        val uvOffset = ySize
-        for (i in 0 until uSize) {
-            yuv[uvOffset + i] = uVal
-            yuv[uvOffset + uSize + i] = vVal
         }
     }
 }

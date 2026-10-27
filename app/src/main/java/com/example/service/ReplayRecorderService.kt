@@ -30,6 +30,9 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 
 data class ServiceStatus(
     val isRunning: Boolean = false,
@@ -62,7 +65,6 @@ class ReplayRecorderService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
-    // Screen On/Off receiver to optimize battery when screen is locked
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -121,7 +123,7 @@ class ReplayRecorderService : Service() {
                 "GameReplayPro::RecordingWakeLock"
             ).apply {
                 setReferenceCounted(false)
-                acquire(4 * 60 * 60 * 1000L) // 4 hours maximum safety timeout
+                acquire(4 * 60 * 60 * 1000L)
             }
         } catch (e: Exception) {
             Log.w(tag, "WakeLock acquisition skipped: ${e.message}")
@@ -138,7 +140,6 @@ class ReplayRecorderService : Service() {
     }
 
     private fun startForegroundServiceWithNotification() {
-        val app = application as GameReplayApplication
         val openAppIntent = Intent(this, MainActivity::class.java)
         val openAppPendingIntent = PendingIntent.getActivity(
             this, 0, openAppIntent,
@@ -197,7 +198,7 @@ class ReplayRecorderService : Service() {
         recordingEngine = ScreenRecordingEngine(
             context = this,
             bufferManager = repo.bufferManager,
-            onChunkSaved = { chunkFile, durationMs ->
+            onChunkSaved = { _, _ ->
                 _serviceStatus.value = _serviceStatus.value.copy(
                     bufferedChunkCount = repo.bufferManager.getChunkCount(),
                     bufferedSeconds = repo.bufferManager.getBufferedDurationSeconds(),
@@ -227,40 +228,53 @@ class ReplayRecorderService : Service() {
     }
 
     private fun saveReplayClip(customTitle: String?) {
+        // Prevent duplicate overlapping save requests if already saving
+        if (_serviceStatus.value.isSavingClip) {
+            return
+        }
+
         vibratePhone()
         _serviceStatus.value = _serviceStatus.value.copy(isSavingClip = true)
-        Toast.makeText(this, "正在保存...", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "正在保存精彩瞬间...", Toast.LENGTH_SHORT).show()
 
         serviceScope.launch {
-            val app = application as GameReplayApplication
-            val repo = app.repository
-            val settings = repo.settings.value
+            try {
+                val app = application as GameReplayApplication
+                val repo = app.repository
+                val settings = repo.settings.value
 
-            // Flush currently recorded chunk so recent gameplay seconds are preserved
-            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
-                val engine = recordingEngine
-                if (engine != null) {
-                    engine.flushCurrentChunk(settings) {
-                        if (cont.isActive) cont.resume(Unit, null)
+                // Bounded timeout (1200ms max) ensures flushCurrentChunk can never block saving indefinitely
+                withTimeoutOrNull(1200L) {
+                    suspendCancellableCoroutine<Unit> { cont ->
+                        val engine = recordingEngine
+                        if (engine != null) {
+                            engine.flushCurrentChunk(settings) {
+                                if (cont.isActive) cont.resume(Unit)
+                            }
+                        } else {
+                            if (cont.isActive) cont.resume(Unit)
+                        }
                     }
-                } else {
-                    if (cont.isActive) cont.resume(Unit, null)
                 }
-            }
 
-            val savedClip = repo.saveCurrentBufferAsReplay(customTitle)
-            _serviceStatus.value = _serviceStatus.value.copy(
-                isSavingClip = false,
-                bufferedChunkCount = repo.bufferManager.getChunkCount(),
-                bufferedSeconds = repo.bufferManager.getBufferedDurationSeconds(),
-                bufferedBytes = repo.bufferManager.getBufferedSizeBytes()
-            )
+                val savedClip = repo.saveCurrentBufferAsReplay(customTitle)
+                _serviceStatus.value = _serviceStatus.value.copy(
+                    isSavingClip = false,
+                    bufferedChunkCount = repo.bufferManager.getChunkCount(),
+                    bufferedSeconds = repo.bufferManager.getBufferedDurationSeconds(),
+                    bufferedBytes = repo.bufferManager.getBufferedSizeBytes()
+                )
 
-            if (savedClip != null) {
-                Toast.makeText(this@ReplayRecorderService, "已保存", Toast.LENGTH_SHORT).show()
-                Log.i(tag, "Replay successfully saved: ${savedClip.title}")
-            } else {
-                Toast.makeText(this@ReplayRecorderService, "保存失败", Toast.LENGTH_SHORT).show()
+                if (savedClip != null) {
+                    Toast.makeText(this@ReplayRecorderService, "已保存精彩瞬间", Toast.LENGTH_SHORT).show()
+                    Log.i(tag, "Replay successfully saved: ${savedClip.title}")
+                } else {
+                    Toast.makeText(this@ReplayRecorderService, "保存失败，请稍后重试", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(tag, "Error saving replay clip", e)
+                _serviceStatus.value = _serviceStatus.value.copy(isSavingClip = false)
+                Toast.makeText(this@ReplayRecorderService, "保存异常", Toast.LENGTH_SHORT).show()
             }
         }
     }
