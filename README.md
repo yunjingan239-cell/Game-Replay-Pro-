@@ -1,11 +1,11 @@
-# Game Replay Pro (游戏高光回录大师)
+# Game Replay Pro 
 
 > **专为移动端电竞玩家打造的低功耗、零掉帧、后台无感“精彩时刻即时回录”助手。**  
 > 媲美 PC 端 **NVIDIA ShadowPlay (GeForce Experience)** 与 **Xbox Game Bar** 的核心回录体验。
 
 ---
 
-## 📖 项目简介 (Project Overview)
+## 01 项目简介 (Project Overview)
 
 **Game Replay Pro** 不是传统的手动开始/停止的录屏软件，而是一套**智能滑动循环视频回录系统**。
 
@@ -18,38 +18,38 @@
 
 ---
 
-## ✨ 核心特性 (Key Features)
+## 02 核心特性 (Key Features)
 
-### 1. 🔄 智能滑动时间循环缓冲 (Circular Buffer Engine)
+### 2.1 智能滑动时间循环缓冲 (Circular Buffer Engine)
 - **零存储压力**：采用自研环形队列（Ring Queue）与 10 秒微切片（Chunk）机制，仅在内存与专用临时缓存区保留设定时长的最近画面，自动轮转覆盖过期片段。
 - **动态配额守护**：内置智能存储防护网（Smart Storage Guard），防止磁盘碎片膨胀。
 
-### 2. ⚡ 极速一键保存与无损拼流 (Instant Clip Muxing)
+### 2.2 极速一键保存与无损拼流 (Instant Clip Muxing)
 - **瞬时抓取**：轻触悬浮球即可将环形缓冲内的全部切片在后台极速抽取并进行精确时间戳（PTS）无损拼流，直接生成标准的 MP4 高清视频。
 - **微震感反馈**：触发瞬间提供短促线性触觉反馈（Haptic Vibration），无需切屏即可确认保存完成。
 
-### 3. 📲 手机控制中心快捷磁贴 (Quick Settings Tile)
+### 2.3 手机控制中心快捷磁贴 (Quick Settings Tile)
 - **系统级集成**：支持将「游戏回录」添加到 Android 顶栏下拉控制中心（Quick Settings Tile）。
 - **Android 14+ 免打扰穿透**：底层接入 `MediaProjectionConfig.createConfigForDefaultDisplay()`，绕过系统单应用截取弹窗，一键直达全屏沉浸录制。
 - **双向联动**：磁贴图标实时指示回录状态（空闲待机 / 录制中），再次点击即可安全停止回录与悬浮窗。
 
-### 4. 🎧 高保真原生音频采集 (Esports Audio Engine)
+### 2.4 高保真原生音频采集 (Esports Audio Engine)
 - **内录游戏原声（Android 10+）**：通过 `AudioPlaybackCaptureConfiguration` 捕获游戏内部 BGM、打击声效和开黑语音，杜绝环境风噪与杂音。
 - **解说麦克风混音支持**：支持麦克风旁白采集，适配电竞解说与游戏直播复盘。
 - **音频流防饥饿守护**：集成自研 PCM 时钟补偿与保底合成机制，在游戏切图或静音期间依然平滑推流，彻底杜绝视频无声、音画不同步问题。
 
-### 5. 🎯 沉浸悬浮球与智能避让 (Floating Action Ball)
+### 2.5 沉浸悬浮球与智能避让 (Floating Action Ball)
 - **微型低侵入**：支持 36dp/48dp/60dp 尺寸微调与 30%~100% 透明度调节。
 - **自动幽灵避让**：闲置 3 秒后悬浮球自动变浅微化，绝不遮挡游戏技能按键与视野。
 - **全屏拖拽磁吸**：自由拖动停靠屏幕边缘，支持长按快速调出功能快捷菜单。
 
-### 6. 🎮 游戏模式与自动启动 (Game Mode & Auto Detection)
+### 2.6 游戏模式与自动启动 (Game Mode & Auto Detection)
 - **已装游戏感知**：自动识别《王者荣耀》《和平精英》《原神》《英雄联盟手游》等主流手游。
 - **一键优化启动**：在游戏模式中提供沉浸免打扰开关与优先级调度，保证高画质与低延迟。
 
 ---
 
-## 🛠 技术架构 (Architecture & Tech Stack)
+## 03 技术架构 (Architecture & Tech Stack)
 
 本应用遵循 **Modern Android Architecture** 与 **Clean Architecture** 规范开发，全模块采用 Kotlin 与声明式 Jetpack Compose：
 
@@ -97,7 +97,7 @@
 
 ---
 
-## 📂 项目工程目录 (Project Structure)
+## 04 项目工程目录 (Project Structure)
 
 ```
 app/src/main/java/com/example/
@@ -145,7 +145,7 @@ app/src/main/java/com/example/
 
 ---
 
-## ⚡ 性能优化与游戏保帧设计 (Performance Engineering)
+## 05 性能优化与游戏保帧设计 (Performance Engineering)
 
 为了保障游戏在 60fps/90fps/120fps 满帧运行，本应用在架构设计上执行严格的性能准则：
 
@@ -157,7 +157,7 @@ app/src/main/java/com/example/
 
 ---
 
-## 🔒 权限使用声明 (Permissions)
+## 06 权限使用声明 (Permissions)
 
 | 权限名称 | 用途说明 |
 |:---|:---|
@@ -171,7 +171,7 @@ app/src/main/java/com/example/
 
 ---
 
-## 🚀 快速上手与使用步骤 (User Guide)
+## 07 快速上手与使用步骤 (User Guide)
 
 1. **首次授权**：打开应用，授予通知、悬浮窗以及音频权限。
 2. **开启回录**：
