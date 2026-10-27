@@ -177,7 +177,7 @@
 
 ---
 
-## 07 从 GitHub 下载后自行打包指南 (Self-Packaging Guide)
+## 07 打包指南 (Self-Packaging Guide)
 
 本项目已内置完整的 Gradle Wrapper（`gradlew` / `gradlew.bat`）、签名自动还原机制（`settings.gradle.kts` 自动从 `debug.keystore.base64` 还原 `debug.keystore`）以及一键打包脚本。用户从 GitHub 下载或克隆仓库后，可通过以下四种方式自行编译打包 APK。
 
