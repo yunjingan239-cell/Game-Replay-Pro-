@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.media.AudioAttributes
 import android.media.MediaMetadataRetriever
@@ -21,16 +25,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -74,16 +80,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.example.data.local.ReplayClip
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.PrimaryBlue
@@ -94,6 +108,13 @@ import com.example.util.MediaExportHelper
 import com.example.util.VideoThumbnailView
 import kotlinx.coroutines.delay
 import java.io.File
+
+private data class VideoDisplayMeta(
+    val displayWidth: Int,
+    val displayHeight: Int,
+    val rotation: Int,
+    val aspectRatio: Float
+)
 
 /**
  * High-performance Esports Video Player Dialog.
@@ -107,7 +128,8 @@ import java.io.File
  * - Double-tap left/right seeks -5s/+5s with subtle, non-intrusive gesture feedback badges,
  *   completely replacing bulky permanent rewind/forward buttons in the center.
  * - Center play/pause button is refined and only displayed when paused or on-demand.
- * - Supports seamless fullscreen immersion mode for full-canvas cinematic review.
+ * - Supports seamless fullscreen immersion mode with automatic landscape switching and strict
+ *   aspect-ratio preservation (zero stretching or distortion).
  */
 @Composable
 fun VideoPlayerDialog(
@@ -115,6 +137,7 @@ fun VideoPlayerDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val videoFile = remember(clip.filePath) { File(clip.filePath) }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -130,30 +153,42 @@ fun VideoPlayerDialog(
     var isMuted by remember { mutableStateOf(false) }
     var seekFeedback by remember { mutableStateOf<Pair<Boolean, String>?>(null) } // Pair(isLeft, label)
 
-    // Dynamically retrieve real aspect ratio from video file
-    var videoAspectRatio by remember {
-        val initialRatio = try {
-            if (videoFile.exists()) {
-                val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(videoFile.absolutePath)
-                val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toFloatOrNull() ?: 16f
-                val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toFloatOrNull() ?: 9f
-                val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
-                retriever.release()
-                if (rotation == 90 || rotation == 270) {
-                    (h / w).coerceIn(0.5f, 2.5f)
-                } else {
-                    (w / h).coerceIn(0.5f, 2.5f)
-                }
-            } else 16f / 9f
-        } catch (_: Exception) {
-            16f / 9f
-        }
-        mutableFloatStateOf(initialRatio)
+    // Extract initial video dimensions & rotation metadata
+    val initialMeta = remember(videoFile.absolutePath, clip.resolution) {
+        extractVideoDisplayMetadata(videoFile, clip.resolution)
     }
+    val videoRotation by remember { mutableIntStateOf(initialMeta.rotation) }
+    var videoWidthPx by remember { mutableIntStateOf(initialMeta.displayWidth) }
+    var videoHeightPx by remember { mutableIntStateOf(initialMeta.displayHeight) }
+    var videoAspectRatio by remember { mutableFloatStateOf(initialMeta.aspectRatio) }
 
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
+
+    // Automatically switch Activity orientation to landscape when entering fullscreen for landscape videos
+    DisposableEffect(isFullscreen, videoAspectRatio) {
+        if (isFullscreen) {
+            if (videoAspectRatio > 1.0f) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            } else {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            }
+        } else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        onDispose {
+            if (!isFullscreen) {
+                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
+    }
+
+    // Ensure orientation is always restored when dialog is completely dismissed
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
 
     fun performSeek(targetMs: Int) {
         val mp = mediaPlayer ?: return
@@ -197,6 +232,15 @@ fun VideoPlayerDialog(
         } catch (_: Exception) {}
     }
 
+    fun updateVideoDimensions(rawW: Int, rawH: Int) {
+        if (rawW <= 0 || rawH <= 0) return
+        val dispW = if (videoRotation == 90 || videoRotation == 270) rawH else rawW
+        val dispH = if (videoRotation == 90 || videoRotation == 270) rawW else rawH
+        videoWidthPx = dispW
+        videoHeightPx = dispH
+        videoAspectRatio = (dispW.toFloat() / dispH.toFloat()).coerceIn(0.35f, 3.0f)
+    }
+
     // Initialize MediaPlayer lifecycle
     DisposableEffect(videoFile.absolutePath) {
         if (!videoFile.exists()) {
@@ -222,7 +266,7 @@ fun VideoPlayerDialog(
                             totalDurationMs = clip.durationSeconds * 1000
                         }
                         if (player.videoWidth > 0 && player.videoHeight > 0) {
-                            videoAspectRatio = (player.videoWidth.toFloat() / player.videoHeight.toFloat()).coerceIn(0.5f, 2.5f)
+                            updateVideoDimensions(player.videoWidth, player.videoHeight)
                         }
                         surfaceRef?.let {
                             if (it.isValid) {
@@ -234,7 +278,7 @@ fun VideoPlayerDialog(
                     }
                     setOnVideoSizeChangedListener { _, w, h ->
                         if (w > 0 && h > 0) {
-                            videoAspectRatio = (w.toFloat() / h.toFloat()).coerceIn(0.5f, 2.5f)
+                            updateVideoDimensions(w, h)
                         }
                     }
                     setOnSeekCompleteListener {
@@ -316,99 +360,152 @@ fun VideoPlayerDialog(
         },
         properties = DialogProperties(
             usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = !isFullscreen,
             dismissOnBackPress = true,
             dismissOnClickOutside = !isFullscreen
         )
     ) {
+        val dialogWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        LaunchedEffect(dialogWindow, isFullscreen) {
+            dialogWindow?.let { window ->
+                window.setLayout(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                val insetsController = WindowCompat.getInsetsController(window, window.decorView)
+                if (isFullscreen) {
+                    WindowCompat.setDecorFitsSystemWindows(window, false)
+                    insetsController.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                    insetsController.hide(WindowInsetsCompat.Type.systemBars())
+                } else {
+                    WindowCompat.setDecorFitsSystemWindows(window, true)
+                    insetsController.show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+        }
+
+        val handleSurfaceReady: (Surface) -> Unit = { newSurface ->
+            val oldSurface = surfaceRef
+            surfaceRef = newSurface
+            try {
+                mediaPlayer?.setSurface(newSurface)
+                if (isPrepared && !isPlaying) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        mediaPlayer?.seekTo(currentPosMs.toLong(), MediaPlayer.SEEK_CLOSEST)
+                    } else {
+                        mediaPlayer?.seekTo(currentPosMs)
+                    }
+                }
+            } catch (_: Exception) {}
+            if (oldSurface != null && oldSurface !== newSurface) {
+                try {
+                    oldSurface.release()
+                } catch (_: Exception) {}
+            }
+        }
+
         if (isFullscreen) {
-            // Fullscreen Immersion Mode: Deep Cinema View
-            Box(
+            // Fullscreen Immersion Mode: Deep Cinema View with automatic landscape adaptation
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                VideoPlayerSurface(
-                    clip = clip,
-                    videoFile = videoFile,
-                    videoAspectRatio = videoAspectRatio,
-                    isPrepared = isPrepared,
-                    isPlaying = isPlaying,
-                    isDragging = isDragging,
-                    isControlsVisible = isControlsVisible,
-                    currentPosMs = currentPosMs,
-                    totalDurationMs = totalDurationMs,
-                    dragProgressMs = dragProgressMs,
-                    seekFeedback = seekFeedback,
-                    isMuted = isMuted,
-                    isFullscreen = true,
-                    onSurfaceReady = { surface ->
-                        surfaceRef = surface
-                        mediaPlayer?.setSurface(surface)
-                    },
-                    onToggleControls = { isControlsVisible = !isControlsVisible },
-                    onTogglePlayPause = { togglePlayPause() },
-                    onToggleMute = { toggleMute() },
-                    onToggleFullscreen = { isFullscreen = false },
-                    onSeek = { newPos -> performSeek(newPos) },
-                    onDragChange = { isDrag, pos ->
-                        isDragging = isDrag
-                        dragProgressMs = pos
-                        if (!isDrag) performSeek(pos.toInt())
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                // If the video is landscape (> 1.0f) but the host window is still in portrait (maxWidth < maxHeight),
+                // rotate the fullscreen canvas 90 degrees and swap layout width/height constraints so it always plays in landscape.
+                val shouldRotateCanvasToLandscape = videoAspectRatio > 1.0f && maxWidth < maxHeight
 
-                // Top Bar in Fullscreen
-                AnimatedVisibility(
-                    visible = isControlsVisible,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.TopCenter)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .rotateFullscreenLandscapeIfNeeded(shouldRotateCanvasToLandscape)
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
-                                )
-                            )
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                    VideoPlayerSurface(
+                        clip = clip,
+                        videoFile = videoFile,
+                        videoAspectRatio = videoAspectRatio,
+                        videoWidthPx = videoWidthPx,
+                        videoHeightPx = videoHeightPx,
+                        isPrepared = isPrepared,
+                        isPlaying = isPlaying,
+                        isDragging = isDragging,
+                        isControlsVisible = isControlsVisible,
+                        currentPosMs = currentPosMs,
+                        totalDurationMs = totalDurationMs,
+                        dragProgressMs = dragProgressMs,
+                        seekFeedback = seekFeedback,
+                        isMuted = isMuted,
+                        isFullscreen = true,
+                        onSurfaceReady = handleSurfaceReady,
+                        onToggleControls = { isControlsVisible = !isControlsVisible },
+                        onTogglePlayPause = { togglePlayPause() },
+                        onToggleMute = { toggleMute() },
+                        onToggleFullscreen = { isFullscreen = false },
+                        onSeek = { newPos -> performSeek(newPos) },
+                        onSeekFeedback = { isLeft, label -> seekFeedback = Pair(isLeft, label) },
+                        onDragChange = { isDrag, pos ->
+                            isDragging = isDrag
+                            dragProgressMs = pos
+                            if (!isDrag) performSeek(pos.toInt())
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Top Bar in Fullscreen
+                    AnimatedVisibility(
+                        visible = isControlsVisible,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier.align(Alignment.TopCenter)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { isFullscreen = false }) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Black.copy(alpha = 0.75f), Color.Transparent)
+                                    )
+                                )
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { isFullscreen = false }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Exit Fullscreen",
+                                        tint = PureWhite
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = clip.title,
+                                        color = PureWhite,
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                    Text(
+                                        text = "${clip.resolution} • ${(totalDurationMs / 1000).coerceAtLeast(1)}秒",
+                                        color = PureWhite.copy(alpha = 0.7f),
+                                        fontSize = 11.sp
+                                    )
+                                }
+                            }
+
+                            IconButton(onClick = { toggleMute() }) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Exit Fullscreen",
+                                    imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                    contentDescription = "Mute",
                                     tint = PureWhite
                                 )
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
-                                Text(
-                                    text = clip.title,
-                                    color = PureWhite,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = "${clip.resolution} • ${(totalDurationMs / 1000).coerceAtLeast(1)}秒",
-                                    color = PureWhite.copy(alpha = 0.7f),
-                                    fontSize = 11.sp
-                                )
-                            }
-                        }
-
-                        IconButton(onClick = { toggleMute() }) {
-                            Icon(
-                                imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                                contentDescription = "Mute",
-                                tint = PureWhite
-                            )
                         }
                     }
                 }
@@ -478,10 +575,19 @@ fun VideoPlayerDialog(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // 2. Video Player Frame (Unobstructed View)
-                    Box(
-                        modifier = Modifier
+                    val cardVideoModifier = if (videoAspectRatio >= 1.0f) {
+                        Modifier
                             .fillMaxWidth()
-                            .aspectRatio(videoAspectRatio)
+                            .aspectRatio(videoAspectRatio.coerceIn(1.0f, 3.0f))
+                    } else {
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 420.dp)
+                            .aspectRatio(videoAspectRatio.coerceIn(0.35f, 1.0f))
+                    }
+
+                    Box(
+                        modifier = cardVideoModifier
                             .clip(RoundedCornerShape(16.dp))
                             .background(Color(0xFF070B14)),
                         contentAlignment = Alignment.Center
@@ -490,6 +596,8 @@ fun VideoPlayerDialog(
                             clip = clip,
                             videoFile = videoFile,
                             videoAspectRatio = videoAspectRatio,
+                            videoWidthPx = videoWidthPx,
+                            videoHeightPx = videoHeightPx,
                             isPrepared = isPrepared,
                             isPlaying = isPlaying,
                             isDragging = isDragging,
@@ -500,15 +608,13 @@ fun VideoPlayerDialog(
                             seekFeedback = seekFeedback,
                             isMuted = isMuted,
                             isFullscreen = false,
-                            onSurfaceReady = { surface ->
-                                surfaceRef = surface
-                                mediaPlayer?.setSurface(surface)
-                            },
+                            onSurfaceReady = handleSurfaceReady,
                             onToggleControls = { isControlsVisible = !isControlsVisible },
                             onTogglePlayPause = { togglePlayPause() },
                             onToggleMute = { toggleMute() },
                             onToggleFullscreen = { isFullscreen = true },
                             onSeek = { newPos -> performSeek(newPos) },
+                            onSeekFeedback = { isLeft, label -> seekFeedback = Pair(isLeft, label) },
                             onDragChange = { isDrag, pos ->
                                 isDragging = isDrag
                                 dragProgressMs = pos
@@ -579,13 +685,15 @@ fun VideoPlayerDialog(
 }
 
 /**
- * Reusable, High-Fidelity Video Surface with Unobtrusive Modern Overlay.
+ * Reusable, High-Fidelity Video Surface with Unobtrusive Modern Overlay and Strict Aspect-Ratio Fitting.
  */
 @Composable
 private fun VideoPlayerSurface(
     clip: ReplayClip,
     videoFile: File,
     videoAspectRatio: Float,
+    videoWidthPx: Int,
+    videoHeightPx: Int,
     isPrepared: Boolean,
     isPlaying: Boolean,
     isDragging: Boolean,
@@ -602,12 +710,15 @@ private fun VideoPlayerSurface(
     onToggleMute: () -> Unit,
     onToggleFullscreen: () -> Unit,
     onSeek: (Int) -> Unit,
+    onSeekFeedback: (Boolean, String) -> Unit,
     onDragChange: (Boolean, Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val safeAspectRatio = videoAspectRatio.coerceIn(0.35f, 3.0f)
+
     Box(
         modifier = modifier
-            .pointerInput(Unit) {
+            .pointerInput(totalDurationMs) {
                 detectTapGestures(
                     onTap = {
                         onToggleControls()
@@ -618,43 +729,82 @@ private fun VideoPlayerSurface(
                         val delta = if (isLeft) -5000 else 5000
                         val target = (currentPosMs + delta).coerceIn(0, totalDurationMs)
                         onSeek(target)
+                        onSeekFeedback(isLeft, if (isLeft) "-5s" else "+5s")
                     }
                 )
             },
         contentAlignment = Alignment.Center
     ) {
-        // 1. Placeholder before first frame renders
-        if (!isPrepared) {
-            VideoThumbnailView(
-                clip = clip,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
         if (videoFile.exists()) {
-            // 2. Hardware TextureView Renderer
-            AndroidView(
-                factory = { ctx ->
-                    TextureView(ctx).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
+            // Fit the video canvas strictly to videoAspectRatio inside the available container
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                val containerRatio = if (maxHeight > 0.dp) maxWidth / maxHeight else safeAspectRatio
+                val fittedVideoModifier = if (containerRatio > safeAspectRatio) {
+                    Modifier
+                        .fillMaxHeight()
+                        .aspectRatio(safeAspectRatio)
+                } else {
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(safeAspectRatio)
+                }
+
+                Box(
+                    modifier = fittedVideoModifier,
+                    contentAlignment = Alignment.Center
+                ) {
+                    // 1. Placeholder before first frame renders
+                    if (!isPrepared) {
+                        VideoThumbnailView(
+                            clip = clip,
+                            modifier = Modifier.fillMaxSize()
                         )
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
-                                onSurfaceReady(Surface(st))
-                            }
-                            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {}
-                            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
-                            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
-                        }
-                        if (isAvailable && surfaceTexture != null) {
-                            onSurfaceReady(Surface(surfaceTexture))
-                        }
                     }
-                },
-                modifier = Modifier.matchParentSize()
-            )
+
+                    // 2. Hardware TextureView Renderer with Center-Fit Matrix Protection
+                    AndroidView(
+                        factory = { ctx ->
+                            TextureView(ctx).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                    override fun onSurfaceTextureAvailable(st: SurfaceTexture, width: Int, height: Int) {
+                                        applyCenterFitMatrix(this@apply, width, height, videoWidthPx, videoHeightPx)
+                                        onSurfaceReady(Surface(st))
+                                    }
+
+                                    override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, width: Int, height: Int) {
+                                        applyCenterFitMatrix(this@apply, width, height, videoWidthPx, videoHeightPx)
+                                    }
+
+                                    override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean = true
+
+                                    override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+                                }
+                                if (isAvailable && surfaceTexture != null) {
+                                    applyCenterFitMatrix(this, width, height, videoWidthPx, videoHeightPx)
+                                    onSurfaceReady(Surface(surfaceTexture!!))
+                                }
+                            }
+                        },
+                        update = { textureView ->
+                            applyCenterFitMatrix(
+                                textureView = textureView,
+                                viewWidth = textureView.width,
+                                viewHeight = textureView.height,
+                                videoWidth = videoWidthPx,
+                                videoHeight = videoHeightPx
+                            )
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
 
             // 3. Center Play/Pause indicator - ONLY shown when paused or when controls are active
             AnimatedVisibility(
@@ -679,7 +829,7 @@ private fun VideoPlayerSurface(
                 }
             }
 
-            // 4. Subtle Top Overlay in non-fullscreen (Mute & Fullscreen quick toggles)
+            // 4. Subtle Top Overlay in non-fullscreen (Mute quick toggle)
             if (!isFullscreen) {
                 AnimatedVisibility(
                     visible = isControlsVisible,
@@ -845,6 +995,117 @@ private fun VideoPlayerSurface(
             )
         }
     }
+}
+
+/**
+ * Rotates a fullscreen container 90 degrees clockwise and swaps width/height layout constraints
+ * when playing a landscape video inside a portrait window (e.g. when device auto-rotate is locked
+ * or the Dialog window remains in portrait orientation).
+ */
+private fun Modifier.rotateFullscreenLandscapeIfNeeded(rotate: Boolean): Modifier =
+    if (!rotate) {
+        this
+    } else {
+        this
+            .graphicsLayer {
+                rotationZ = 90f
+            }
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(
+                    Constraints(
+                        minWidth = constraints.minHeight,
+                        maxWidth = constraints.maxHeight,
+                        minHeight = constraints.minWidth,
+                        maxHeight = constraints.maxWidth
+                    )
+                )
+                layout(constraints.maxWidth, constraints.maxHeight) {
+                    placeable.place(
+                        x = (constraints.maxWidth - placeable.width) / 2,
+                        y = (constraints.maxHeight - placeable.height) / 2
+                    )
+                }
+            }
+    }
+
+/**
+ * Applies a hardware center-fit Matrix transform to TextureView so video frames never stretch or distort
+ * even during intermediate layout/orientation transitions.
+ */
+private fun applyCenterFitMatrix(
+    textureView: TextureView,
+    viewWidth: Int,
+    viewHeight: Int,
+    videoWidth: Int,
+    videoHeight: Int
+) {
+    if (viewWidth <= 0 || viewHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) return
+
+    val viewRatio = viewWidth.toFloat() / viewHeight.toFloat()
+    val videoRatio = videoWidth.toFloat() / videoHeight.toFloat()
+
+    val scaleX: Float
+    val scaleY: Float
+    if (videoRatio > viewRatio) {
+        scaleX = 1f
+        scaleY = viewRatio / videoRatio
+    } else {
+        scaleX = videoRatio / viewRatio
+        scaleY = 1f
+    }
+
+    val matrix = Matrix()
+    matrix.setScale(scaleX, scaleY, viewWidth / 2f, viewHeight / 2f)
+    textureView.setTransform(matrix)
+}
+
+private fun extractVideoDisplayMetadata(videoFile: File, fallbackResolution: String): VideoDisplayMeta {
+    val fallback = parseResolutionDimensions(fallbackResolution)
+    if (!videoFile.exists()) {
+        val ratio = (fallback.first.toFloat() / fallback.second.toFloat()).coerceIn(0.35f, 3.0f)
+        return VideoDisplayMeta(fallback.first, fallback.second, 0, ratio)
+    }
+
+    val retriever = MediaMetadataRetriever()
+    return try {
+        retriever.setDataSource(videoFile.absolutePath)
+        val rawW = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull()
+            ?: fallback.first
+        val rawH = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull()
+            ?: fallback.second
+        val rotation = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull()
+            ?: 0
+
+        val dispW = if (rotation == 90 || rotation == 270) rawH else rawW
+        val dispH = if (rotation == 90 || rotation == 270) rawW else rawH
+        val ratio = (dispW.toFloat() / dispH.toFloat().coerceAtLeast(1f)).coerceIn(0.35f, 3.0f)
+        VideoDisplayMeta(dispW, dispH, rotation, ratio)
+    } catch (_: Exception) {
+        val ratio = (fallback.first.toFloat() / fallback.second.toFloat()).coerceIn(0.35f, 3.0f)
+        VideoDisplayMeta(fallback.first, fallback.second, 0, ratio)
+    } finally {
+        try {
+            retriever.release()
+        } catch (_: Exception) {}
+    }
+}
+
+private fun parseResolutionDimensions(resolution: String): Pair<Int, Int> {
+    val parts = resolution.lowercase().split("x")
+    if (parts.size == 2) {
+        val w = parts[0].trim().toIntOrNull()
+        val h = parts[1].trim().toIntOrNull()
+        if (w != null && h != null && w > 0 && h > 0) {
+            return Pair(w, h)
+        }
+    }
+    return Pair(1920, 1080)
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 private fun formatDurationMs(millis: Int): String {
