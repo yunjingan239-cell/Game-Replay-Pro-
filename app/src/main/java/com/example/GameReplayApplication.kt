@@ -39,6 +39,10 @@ class GameReplayApplication : Application() {
         )
 
         createNotificationChannels()
+
+        // Ensure Quick Settings Tile and service status are strictly synchronized on process startup
+        com.example.service.ReplayRecorderService.syncAndVerifyState(this)
+        com.example.service.ReplayTileService.requestTileUpdate(this)
     }
 
     override fun onTrimMemory(level: Int) {

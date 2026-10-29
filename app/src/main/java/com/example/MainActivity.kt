@@ -100,7 +100,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (viewModel.settings.value.floatingButtonEnabled && android.provider.Settings.canDrawOverlays(this)) {
+        // Synchronize live service state with Quick Settings Tile whenever user enters or returns to the app
+        val isBufferingNow = com.example.service.ReplayRecorderService.syncAndVerifyState(this)
+        com.example.service.ReplayTileService.requestTileUpdate(this)
+
+        if (isBufferingNow && viewModel.settings.value.floatingButtonEnabled && android.provider.Settings.canDrawOverlays(this)) {
             com.example.service.FloatingOverlayService.start(this)
         }
     }

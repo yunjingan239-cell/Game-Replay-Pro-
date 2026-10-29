@@ -54,7 +54,8 @@ class ScreenRecordingEngine(
     private val bufferManager: CircularBufferManager,
     private val onChunkSaved: (File, Long) -> Unit,
     private val onTelemetryUpdate: (EncoderTelemetry) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    private val onProjectionStopped: (() -> Unit)? = null
 ) {
 
     private val tag = "ScreenRecordingEngine"
@@ -299,6 +300,7 @@ class ScreenRecordingEngine(
                         super.onStop()
                         Log.i(tag, "MediaProjection stopped by system")
                         stopRecording()
+                        onProjectionStopped?.invoke()
                     }
                 }
                 projectionCallback = callback

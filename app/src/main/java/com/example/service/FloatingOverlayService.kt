@@ -152,7 +152,16 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
         } else {
             stopSelf()
         }
-        return START_STICKY
+        return START_NOT_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val removedClass = rootIntent?.component?.className
+        if (removedClass == ReplayTilePromptActivity::class.java.name) {
+            return
+        }
+        stopSelf()
     }
 
     private fun createOverlayNotification(): Notification {

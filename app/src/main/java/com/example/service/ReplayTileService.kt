@@ -19,8 +19,10 @@ import kotlinx.coroutines.launch
 
 /**
  * Android Quick Settings Tile Service (下拉控制中心快捷控制开关).
- * Allows users to effortlessly toggle instant replay directly from the system control center shade.
- * Displays real-time recording status and enables 1-tap full screen instant capture.
+ * - Single tap: Toggles instant replay recording on/off.
+ * - Long press: Handled via ACTION_QS_TILE_PREFERENCES in MainActivity to directly open the app.
+ * - Strict state sync: Always verifies live ReplayRecorderService status in onStartListening()
+ *   so background force-kill never leaves the tile in a stale active state.
  */
 class ReplayTileService : TileService() {
 
@@ -28,14 +30,23 @@ class ReplayTileService : TileService() {
     private var serviceJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
 
+    override fun onTileAdded() {
+        super.onTileAdded()
+        val isBuffering = ReplayRecorderService.syncAndVerifyState(this)
+        updateTileState(isBuffering)
+    }
+
     override fun onStartListening() {
         super.onStartListening()
-        // Immediately render latest state synchronously
-        updateTileState(ReplayRecorderService.serviceStatus.value.isBuffering)
+        // Verify live OS service status so if app was force-closed in background, tile immediately resets to INACTIVE
+        val initialBuffering = ReplayRecorderService.syncAndVerifyState(this)
+        updateTileState(initialBuffering)
+
         serviceJob?.cancel()
         serviceJob = scope.launch {
             ReplayRecorderService.serviceStatus.collectLatest { status ->
-                updateTileState(status.isBuffering)
+                val isTrulyBuffering = status.isBuffering && ReplayRecorderService.syncAndVerifyState(this@ReplayTileService)
+                updateTileState(isTrulyBuffering)
             }
         }
     }
@@ -58,16 +69,16 @@ class ReplayTileService : TileService() {
     }
 
     private fun performClickAction() {
-        val isCurrentlyBuffering = ReplayRecorderService.serviceStatus.value.isBuffering
+        val isCurrentlyBuffering = ReplayRecorderService.syncAndVerifyState(this)
 
         if (isCurrentlyBuffering) {
-            // 开启之后再次点击是关闭回录包括浮窗，显示简洁气泡
             ReplayRecorderService.stop(this)
             FloatingOverlayService.stop(this)
             updateTileState(false)
             Toast.makeText(this, "回录已关闭", Toast.LENGTH_SHORT).show()
         } else {
-            // If not recording, launch transparent full-screen prompt activity
+            // Ensure tile visual state reflects inactive until user confirms MediaProjection
+            updateTileState(false)
             val intent = Intent(this, ReplayTilePromptActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
@@ -115,8 +126,8 @@ class ReplayTileService : TileService() {
         fun requestTileUpdate(context: Context) {
             try {
                 requestListeningState(
-                    context,
-                    ComponentName(context, ReplayTileService::class.java)
+                    context.applicationContext,
+                    ComponentName(context.applicationContext, ReplayTileService::class.java)
                 )
             } catch (e: Exception) {
                 Log.w("ReplayTileService", "Failed to request tile listening state: ${e.message}")

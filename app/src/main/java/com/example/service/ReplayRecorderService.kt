@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.PendingIntent
 import android.app.Service
@@ -48,13 +49,13 @@ data class ServiceStatus(
     val currentOrientation: String = "横屏对局 (16:9)",
     val activeResolution: String = "1920x1080",
     val activeFps: Int = 60,
-    val compressionRatio: String = "HEVC 50%高压缩"
+    val compressionRatio: String = "HEVC 原画超清"
 )
 
 /**
  * Foreground Service hosting the instant replay rolling circular buffer engine.
- * Includes battery optimization, partial wake lock management during gameplay,
- * and seamless background notification controls.
+ * Guarantees strict state consistency between the background engine, Quick Settings Tile,
+ * and the main application UI even across background force-kills or task removal.
  */
 class ReplayRecorderService : Service() {
 
@@ -82,6 +83,7 @@ class ReplayRecorderService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isInstanceAlive = true
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
@@ -111,8 +113,30 @@ class ReplayRecorderService : Service() {
             ACTION_SAVE_CLIP -> {
                 saveReplayClip(intent.getStringExtra(EXTRA_CUSTOM_TITLE))
             }
+            null -> {
+                // If recreated by system without explicit start intent, shut down cleanly so state never desyncs
+                FloatingOverlayService.stop(this)
+                stopReplayService()
+            }
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * When the user swipes the main application task away from Recent Apps (后台强制划掉),
+     * cleanly stop the recording engine and update the Quick Settings Tile to OFF so states
+     * never become inconsistent.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        val removedClass = rootIntent?.component?.className
+        // Ignore the transparent permission prompt activity finishing its own ephemeral task
+        if (removedClass == ReplayTilePromptActivity::class.java.name) {
+            return
+        }
+        Log.i(tag, "App task removed from recents ($removedClass) — syncing and stopping replay service")
+        FloatingOverlayService.stop(this)
+        stopReplayService()
     }
 
     private fun acquireWakeLock() {
@@ -140,7 +164,9 @@ class ReplayRecorderService : Service() {
     }
 
     private fun startForegroundServiceWithNotification() {
-        val openAppIntent = Intent(this, MainActivity::class.java)
+        val openAppIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
         val openAppPendingIntent = PendingIntent.getActivity(
             this, 0, openAppIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
@@ -219,11 +245,22 @@ class ReplayRecorderService : Service() {
             },
             onError = { err ->
                 Log.e(tag, "Recording engine error: $err")
+                serviceScope.launch {
+                    FloatingOverlayService.stop(this@ReplayRecorderService)
+                    stopReplayService()
+                }
+            },
+            onProjectionStopped = {
+                serviceScope.launch {
+                    FloatingOverlayService.stop(this@ReplayRecorderService)
+                    stopReplayService()
+                }
             }
         )
 
+        isInstanceAlive = true
         recordingEngine?.startRecording(mediaProjection, settings)
-        _serviceStatus.value = _serviceStatus.value.copy(isBuffering = true)
+        _serviceStatus.value = _serviceStatus.value.copy(isRunning = true, isBuffering = true)
         ReplayTileService.requestTileUpdate(this)
 
         serviceScope.launch {
@@ -234,7 +271,6 @@ class ReplayRecorderService : Service() {
     }
 
     private fun saveReplayClip(customTitle: String?) {
-        // Prevent duplicate overlapping save requests if already saving
         if (_serviceStatus.value.isSavingClip) {
             return
         }
@@ -249,7 +285,6 @@ class ReplayRecorderService : Service() {
                 val repo = app.repository
                 val settings = repo.settings.value
 
-                // Bounded timeout (1200ms max) ensures flushCurrentChunk can never block saving indefinitely
                 withTimeoutOrNull(1200L) {
                     suspendCancellableCoroutine<Unit> { cont ->
                         val engine = recordingEngine
@@ -306,10 +341,13 @@ class ReplayRecorderService : Service() {
     }
 
     private fun stopReplayService() {
+        isInstanceAlive = false
         recordingEngine?.stopRecording()
         recordingEngine = null
 
-        mediaProjection?.stop()
+        try {
+            mediaProjection?.stop()
+        } catch (_: Exception) {}
         mediaProjection = null
 
         releaseWakeLock()
@@ -323,13 +361,16 @@ class ReplayRecorderService : Service() {
             bufferedBytes = 0L
         )
 
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (_: Exception) {}
         ReplayTileService.requestTileUpdate(this)
         stopSelf()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        isInstanceAlive = false
         try {
             unregisterReceiver(screenStateReceiver)
         } catch (_: Exception) {}
@@ -346,8 +387,44 @@ class ReplayRecorderService : Service() {
         const val EXTRA_RESULT_DATA = "extra_result_data"
         const val EXTRA_CUSTOM_TITLE = "extra_custom_title"
 
+        @Volatile
+        private var isInstanceAlive = false
+
         private val _serviceStatus = MutableStateFlow(ServiceStatus())
         val serviceStatus = _serviceStatus.asStateFlow()
+
+        /**
+         * Verifies whether ReplayRecorderService is genuinely alive and buffering in the OS.
+         * If the service was killed in the background or is not running, resets [_serviceStatus]
+         * to inactive and stops any orphan overlay so the App UI and Quick Settings Tile always match.
+         */
+        fun syncAndVerifyState(context: Context): Boolean {
+            val isOsServiceRunning = try {
+                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                @Suppress("DEPRECATION")
+                am?.getRunningServices(Int.MAX_VALUE)?.any {
+                    it.service.className == ReplayRecorderService::class.java.name
+                } ?: false
+            } catch (_: Exception) {
+                isInstanceAlive
+            }
+
+            val trulyActive = isInstanceAlive && isOsServiceRunning && _serviceStatus.value.isBuffering
+            if (!trulyActive) {
+                if (_serviceStatus.value.isRunning || _serviceStatus.value.isBuffering) {
+                    _serviceStatus.value = ServiceStatus(
+                        isRunning = false,
+                        isBuffering = false,
+                        isSavingClip = false,
+                        bufferedChunkCount = 0,
+                        bufferedSeconds = 0,
+                        bufferedBytes = 0L
+                    )
+                }
+                FloatingOverlayService.stop(context)
+            }
+            return trulyActive
+        }
 
         fun start(context: Context, resultCode: Int, resultData: Intent?) {
             val intent = Intent(context, ReplayRecorderService::class.java).apply {
@@ -363,10 +440,18 @@ class ReplayRecorderService : Service() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, ReplayRecorderService::class.java).apply {
-                action = ACTION_STOP
-            }
-            context.startService(intent)
+            isInstanceAlive = false
+            _serviceStatus.value = ServiceStatus(
+                isRunning = false,
+                isBuffering = false,
+                isSavingClip = false,
+                bufferedChunkCount = 0,
+                bufferedSeconds = 0,
+                bufferedBytes = 0L
+            )
+            val intent = Intent(context, ReplayRecorderService::class.java)
+            context.stopService(intent)
+            ReplayTileService.requestTileUpdate(context)
         }
 
         fun triggerSaveClip(context: Context, customTitle: String? = null) {
