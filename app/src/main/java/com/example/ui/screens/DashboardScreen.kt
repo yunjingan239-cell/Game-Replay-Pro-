@@ -433,7 +433,7 @@ fun DashboardScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = if (state.isSavingClip) "请稍等..." else "⚡ 保存精彩瞬间",
+                                    text = if (state.isSavingClip) "请稍等..." else "保存精彩瞬间",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 0.5.sp
