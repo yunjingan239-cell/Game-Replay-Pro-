@@ -225,6 +225,12 @@ class ReplayRecorderService : Service() {
         recordingEngine?.startRecording(mediaProjection, settings)
         _serviceStatus.value = _serviceStatus.value.copy(isBuffering = true)
         ReplayTileService.requestTileUpdate(this)
+
+        serviceScope.launch {
+            repo.settings.collect { updatedSettings ->
+                recordingEngine?.updateSettingsLive(updatedSettings)
+            }
+        }
     }
 
     private fun saveReplayClip(customTitle: String?) {

@@ -27,7 +27,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
-import java.nio.ByteBuffer
 
 data class EncoderTelemetry(
     val encoderName: String,
@@ -37,20 +36,18 @@ data class EncoderTelemetry(
     val currentOrientation: String = "横屏对局 (16:9)",
     val activeResolution: String = "1920x1080",
     val activeFps: Int = 60,
-    val compressionRatio: String = "HEVC 50%高压缩",
+    val compressionRatio: String = "HEVC 原画超清",
     val frameDrops: Int = 0,
     val isAudioActive: Boolean = true
 )
 
 /**
- * Commercial-grade Screen Recording & Instant Replay Rolling Buffer Engine.
+ * High-Fidelity Screen Recording & Instant Replay Rolling Buffer Engine.
  * Features:
- * - Simultaneous Video (HEVC/AVC) + Audio (AAC 44.1kHz Stereo) synchronized encoding.
- * - Hardware HEVC (H.265) & AVC (H.264) video compression optimization.
- * - Internal Game Audio Playback Capture (Android 10+) with zero game latency.
- * - Dynamic auto orientation detection using DisplayListener & VirtualDisplay.resize()
- *   (Android 14+ safe: never recreates VirtualDisplay on the same MediaProjection token).
- * - Non-blocking MediaCodec drain loop so flushCurrentChunk() responds in < 10ms during gameplay.
+ * - 1:1 Native pixel resolution alignment to eliminate GPU bilinear scaling blur.
+ * - High-Bitrate (up to 50-80 Mbps) + Hardware QP Clamping (QP_MAX <= 26) to eliminate macroblocking.
+ * - Full motion-estimation lookahead (no forced zero-latency degradation) + BT.709 Full-Range color accuracy.
+ * - Live hot-reloading when quality settings are updated while recording is active.
  */
 class ScreenRecordingEngine(
     private val context: Context,
@@ -124,7 +121,6 @@ class ScreenRecordingEngine(
         this.isAudioRequested = (settings.internalAudioEnabled || settings.micAudioEnabled)
         isRecording = true
 
-        // Use THREAD_PRIORITY_MORE_FAVORABLE (-1) or DEFAULT (0) for the lightweight handler so flush/save never starves
         handlerThread = HandlerThread("ReplayEngineThread", Process.THREAD_PRIORITY_DEFAULT).apply {
             start()
         }
@@ -135,11 +131,36 @@ class ScreenRecordingEngine(
             setupCodecAndVirtualDisplay(settings)
             startChunkRotationLoop(settings)
             setupDisplayOrientationMonitoring(settings)
-            Log.i(tag, "Commercial instant replay engine active ($encoderName, MIME=$activeMimeType, HDR=$isHdrEnabled, AudioReq=$isAudioRequested)")
+            Log.i(tag, "High-fidelity replay engine active ($encoderName, MIME=$activeMimeType, res=${currentWidth}x${currentHeight})")
         } catch (e: Exception) {
             Log.e(tag, "Failed to start hardware recording engine", e)
             onError("硬件录制编码器初始化失败: ${e.localizedMessage}")
             stopRecording()
+        }
+    }
+
+    /**
+     * Dynamically applies updated quality settings (resolution, FPS, bitrate, codec, VBR)
+     * while recording is active so changes in SettingsScreen take effect immediately.
+     */
+    fun updateSettingsLive(newSettings: ReplaySettings) {
+        val old = currentSettings
+        currentSettings = newSettings
+        if (!isRecording) return
+
+        val needsEncoderRebuild = old == null ||
+            old.resolutionLabel != newSettings.resolutionLabel ||
+            old.resolutionWidth != newSettings.resolutionWidth ||
+            old.resolutionHeight != newSettings.resolutionHeight ||
+            old.fps != newSettings.fps ||
+            old.bitrateMbps != newSettings.bitrateMbps ||
+            old.videoCodec != newSettings.videoCodec ||
+            old.hdrEnabled != newSettings.hdrEnabled ||
+            old.batterySaverVbr != newSettings.batterySaverVbr
+
+        if (needsEncoderRebuild) {
+            val isLandscapeNow = isDeviceInLandscape()
+            handleOrientationFlipped(newSettings, isLandscapeNow)
         }
     }
 
@@ -189,48 +210,68 @@ class ScreenRecordingEngine(
     }
 
     private fun setupCodecAndVirtualDisplay(settings: ReplaySettings) {
-        // 1. Determine orientation & effective resolution
         val isLandscape = isDeviceInLandscape()
         lastReportedLandscape = isLandscape
 
-        val (w, h) = if (settings.autoDetectOrientation) {
-            settings.getEffectiveDimensions(context, isLandscape)
-        } else {
-            Pair(settings.resolutionWidth, settings.resolutionHeight)
-        }
-        currentWidth = w
-        currentHeight = h
-
-        val fps = settings.fps
-        val bitrate = settings.bitrateMbps * 1024 * 1024
-
-        // 2. Select codec: HEVC preferred, fallback to AVC if needed
+        // 1. Select codec: HEVC preferred, fallback to AVC if needed
         val requestedMime = if (settings.videoCodec.contains("AVC", ignoreCase = true)) {
             MediaFormat.MIMETYPE_VIDEO_AVC
         } else {
             MediaFormat.MIMETYPE_VIDEO_HEVC
         }
 
-        var (codecName, isHardware, foundMime) = resolveBestHardwareEncoder(requestedMime)
+        var (codecInfo, isHardware, foundMime) = resolveBestHardwareEncoderInfo(requestedMime)
         if (foundMime != requestedMime && requestedMime == MediaFormat.MIMETYPE_VIDEO_HEVC) {
-            val fallback = resolveBestHardwareEncoder(MediaFormat.MIMETYPE_VIDEO_AVC)
-            codecName = fallback.first
+            val fallback = resolveBestHardwareEncoderInfo(MediaFormat.MIMETYPE_VIDEO_AVC)
+            codecInfo = fallback.first
             isHardware = fallback.second
             foundMime = MediaFormat.MIMETYPE_VIDEO_AVC
         }
 
-        encoderName = codecName
+        encoderName = codecInfo?.name ?: if (foundMime == MediaFormat.MIMETYPE_VIDEO_HEVC) "Hardware HEVC Encoder" else "Hardware AVC Encoder"
         isHwAccelerated = isHardware
         activeMimeType = foundMime
 
-        // 3. Configure MediaFormat with KEY_REPEAT_PREVIOUS_FRAME_AFTER so static game scenes still emit frames
-        val format = createEncoderVideoFormat(
+        val capabilities = try {
+            codecInfo?.getCapabilitiesForType(activeMimeType)
+        } catch (_: Exception) {
+            null
+        }
+
+        // Determine hardware alignment requirement (default 2-pixel for 1:1 native sharpness)
+        val widthAlignment = capabilities?.videoCapabilities?.widthAlignment ?: 2
+        val heightAlignment = capabilities?.videoCapabilities?.heightAlignment ?: 2
+        val alignStep = maxOf(2, widthAlignment, heightAlignment)
+
+        val (w, h) = if (settings.autoDetectOrientation) {
+            settings.getEffectiveDimensions(context, isLandscape, alignStep)
+        } else {
+            settings.getEffectiveDimensions(context, isLandscape, alignStep)
+        }
+        currentWidth = w
+        currentHeight = h
+
+        val fps = settings.fps
+        val rawTargetBitrate = settings.getEffectiveBitrateBps(currentWidth, currentHeight)
+        val supportedBitrateRange = capabilities?.videoCapabilities?.bitrateRange
+        val effectiveBitrate = if (supportedBitrateRange != null) {
+            rawTargetBitrate.coerceIn(supportedBitrateRange.lower.coerceAtLeast(8_000_000), supportedBitrateRange.upper)
+        } else {
+            rawTargetBitrate
+        }
+        val effectiveMbps = effectiveBitrate / 1_000_000
+
+        // 2. Configure hardware MediaCodec with progressive fallback (Full QP + Color -> Standard HQ -> Safe 16px Aligned)
+        mediaCodec = createAndConfigureCodecWithFallback(
+            codecName = codecInfo?.name,
             mime = activeMimeType,
+            capabilities = capabilities,
             width = currentWidth,
             height = currentHeight,
-            bitrate = bitrate,
+            bitrate = effectiveBitrate,
             fps = fps,
-            enableHdr = settings.hdrEnabled && activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC
+            settings = settings,
+            isLandscape = isLandscape
         )
 
         onTelemetryUpdate(
@@ -239,48 +280,17 @@ class ScreenRecordingEngine(
                 codecMime = if (activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "HEVC (H.265)" else "AVC (H.264)",
                 isHardwareAccelerated = isHwAccelerated,
                 isHdrActive = isHdrEnabled,
-                currentOrientation = if (isLandscape) "横屏对局 (${currentWidth}x${currentHeight})" else "竖屏大厅 (${currentWidth}x${currentHeight})",
+                currentOrientation = if (isLandscape) "横屏对局 (${currentWidth}x${currentHeight})" else "竖屏 (${currentWidth}x${currentHeight})",
                 activeResolution = "${currentWidth}x${currentHeight}",
                 activeFps = fps,
-                compressionRatio = if (activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "HEVC 50%高压缩" else "AVC 标准压缩",
+                compressionRatio = "${effectiveMbps}Mbps 原画级 (${if (activeMimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "HEVC" else "AVC"})",
                 isAudioActive = (audioEngine != null)
             )
         )
 
-        // 4. Create and configure hardware MediaCodec
-        mediaCodec = try {
-            MediaCodec.createByCodecName(codecName)
-        } catch (_: Exception) {
-            MediaCodec.createEncoderByType(activeMimeType)
-        }.apply {
-            try {
-                configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-            } catch (e: Exception) {
-                if (isHdrEnabled) {
-                    Log.w(tag, "HDR configure failed, falling back to standard SDR profile")
-                    isHdrEnabled = false
-                    val sdrFormat = createEncoderVideoFormat(
-                        mime = activeMimeType,
-                        width = currentWidth,
-                        height = currentHeight,
-                        bitrate = bitrate,
-                        fps = fps,
-                        enableHdr = false
-                    )
-                    configure(sdrFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                } else {
-                    throw e
-                }
-            }
-            inputSurface = createInputSurface()
-            start()
-        }
-
         prepareNewChunkMuxer()
 
-        // 5. Connect or resize VirtualDisplay from MediaProjection
-        // CRITICAL for Android 14+ (API 34+): A MediaProjection token only allows createVirtualDisplay() ONCE.
-        // On subsequent orientation changes, we MUST call virtualDisplay.resize() + setSurface() instead!
+        // 3. Connect or resize VirtualDisplay from MediaProjection
         mediaProjection?.let { proj ->
             val densityDpi = context.resources.displayMetrics.densityDpi
             if (projectionCallback == null) {
@@ -302,7 +312,7 @@ class ScreenRecordingEngine(
                     currentWidth,
                     currentHeight,
                     densityDpi,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR or DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
                     inputSurface,
                     null,
                     backgroundHandler
@@ -316,25 +326,150 @@ class ScreenRecordingEngine(
         startDrainCodecLoop()
     }
 
-    private fun createEncoderVideoFormat(
+    private fun createAndConfigureCodecWithFallback(
+        codecName: String?,
         mime: String,
+        capabilities: MediaCodecInfo.CodecCapabilities?,
         width: Int,
         height: Int,
         bitrate: Int,
         fps: Int,
-        enableHdr: Boolean
+        settings: ReplaySettings,
+        isLandscape: Boolean
+    ): MediaCodec {
+        fun instantiateCodec(): MediaCodec {
+            return if (!codecName.isNullOrBlank()) {
+                try {
+                    MediaCodec.createByCodecName(codecName)
+                } catch (_: Exception) {
+                    MediaCodec.createEncoderByType(mime)
+                }
+            } else {
+                MediaCodec.createEncoderByType(mime)
+            }
+        }
+
+        // Attempt 1: Maximum visual quality with explicit QP clamping, BT.709 Full Range, and CBR/VBR tuning
+        try {
+            val codec = instantiateCodec()
+            val format = createEncoderVideoFormat(
+                mime = mime,
+                capabilities = capabilities,
+                width = width,
+                height = height,
+                bitrate = bitrate,
+                fps = fps,
+                enableHdr = settings.hdrEnabled && mime == MediaFormat.MIMETYPE_VIDEO_HEVC,
+                useBatterySaverVbr = settings.batterySaverVbr,
+                includeAdvancedQualityKeys = true
+            )
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            inputSurface = codec.createInputSurface()
+            codec.start()
+            return codec
+        } catch (e: Exception) {
+            Log.w(tag, "Advanced HQ format configure note (${e.message}), retrying standard high-bitrate format")
+        }
+
+        // Attempt 2: Standard High-Bitrate SDR format at native dimensions
+        try {
+            val codec = instantiateCodec()
+            isHdrEnabled = false
+            val format = createEncoderVideoFormat(
+                mime = mime,
+                capabilities = capabilities,
+                width = width,
+                height = height,
+                bitrate = bitrate,
+                fps = fps,
+                enableHdr = false,
+                useBatterySaverVbr = settings.batterySaverVbr,
+                includeAdvancedQualityKeys = false
+            )
+            codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            inputSurface = codec.createInputSurface()
+            codec.start()
+            return codec
+        } catch (e: Exception) {
+            Log.w(tag, "Native 2px aligned configure note (${e.message}), falling back to 16px aligned high-bitrate")
+        }
+
+        // Attempt 3: 16-pixel aligned fallback for strict legacy encoders
+        val (safeW, safeH) = settings.getEffectiveDimensions(context, isLandscape, alignStep = 16)
+        currentWidth = safeW
+        currentHeight = safeH
+        val codec = instantiateCodec()
+        val fallbackFormat = createEncoderVideoFormat(
+            mime = mime,
+            capabilities = null,
+            width = safeW,
+            height = safeH,
+            bitrate = bitrate,
+            fps = fps.coerceAtMost(60),
+            enableHdr = false,
+            useBatterySaverVbr = true,
+            includeAdvancedQualityKeys = false
+        )
+        codec.configure(fallbackFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        inputSurface = codec.createInputSurface()
+        codec.start()
+        return codec
+    }
+
+    private fun createEncoderVideoFormat(
+        mime: String,
+        capabilities: MediaCodecInfo.CodecCapabilities?,
+        width: Int,
+        height: Int,
+        bitrate: Int,
+        fps: Int,
+        enableHdr: Boolean,
+        useBatterySaverVbr: Boolean,
+        includeAdvancedQualityKeys: Boolean
     ): MediaFormat {
         return MediaFormat.createVideoFormat(mime, width, height).apply {
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1) // 1s keyframe interval for instant slicing
-            // Ensure encoder repeats frames every 100ms when screen is static so muxer never starves
+            // 2-second keyframe interval preserves bit budget for P-frames so fast motion stays crystal clear
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
+            // Repeat frame every 100ms when screen is static so muxer never starves
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR)
+            // Realtime priority + full operating rate so hardware encoder runs at peak clock
             setInteger(MediaFormat.KEY_PRIORITY, 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                setInteger(MediaFormat.KEY_LATENCY, 0)
+            setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
+
+            // Rate control mode: prefer CBR when user wants max clarity (no VBR bit-starving in teamfights)
+            val encoderCaps = capabilities?.encoderCapabilities
+            val desiredMode = if (!useBatterySaverVbr &&
+                encoderCaps?.isBitrateModeSupported(MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR) == true
+            ) {
+                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR
+            } else {
+                MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR
+            }
+            setInteger(MediaFormat.KEY_BITRATE_MODE, desiredMode)
+
+            if (includeAdvancedQualityKeys) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    setInteger(MediaFormat.KEY_QUALITY, 100)
+                }
+                // Hardware Quantization Parameter (QP) Clamping on Android 12+ (API 31+):
+                // Prevents the hardware encoder from ever quantizing macroblocks coarsely (QP > 26),
+                // completely eliminating blocky compression artifacts in grass, particles, and dark scenes.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setInteger(MediaFormat.KEY_VIDEO_QP_I_MIN, 8)
+                    setInteger(MediaFormat.KEY_VIDEO_QP_I_MAX, 24)
+                    setInteger(MediaFormat.KEY_VIDEO_QP_P_MIN, 8)
+                    setInteger(MediaFormat.KEY_VIDEO_QP_P_MAX, 26)
+                    setInteger(MediaFormat.KEY_VIDEO_QP_B_MIN, 8)
+                    setInteger(MediaFormat.KEY_VIDEO_QP_B_MAX, 28)
+                }
+
+                // Accurate BT.709 Full-Range color space so text edges and dark shadows are never washed out
+                setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709)
+                setInteger(MediaFormat.KEY_COLOR_TRANSFER, MediaFormat.COLOR_TRANSFER_SDR_VIDEO)
+                setInteger(MediaFormat.KEY_COLOR_RANGE, MediaFormat.COLOR_RANGE_FULL)
             }
 
             isHdrEnabled = false
@@ -382,7 +517,8 @@ class ScreenRecordingEngine(
                     val isLandscapeNow = isDeviceInLandscape()
                     if (lastReportedLandscape != isLandscapeNow) {
                         lastReportedLandscape = isLandscapeNow
-                        handleOrientationFlipped(settings, isLandscapeNow)
+                        val activeSettings = currentSettings ?: settings
+                        handleOrientationFlipped(activeSettings, isLandscapeNow)
                     }
                 }
             }
@@ -397,7 +533,7 @@ class ScreenRecordingEngine(
         backgroundHandler?.post {
             if (!isRecording) return@post
             try {
-                Log.i(tag, "Display orientation changed: landscape=$isLandscapeNow. Resizing encoder & VirtualDisplay...")
+                Log.i(tag, "Reconfiguring encoder & VirtualDisplay (landscape=$isLandscapeNow)...")
 
                 drainRunnable?.let { backgroundHandler?.removeCallbacks(it) }
 
@@ -437,12 +573,12 @@ class ScreenRecordingEngine(
                 // 3. Reconfigure encoder and resize existing VirtualDisplay
                 setupCodecAndVirtualDisplay(settings)
             } catch (e: Exception) {
-                Log.e(tag, "Failed to adapt orientation encoder", e)
+                Log.e(tag, "Failed to adapt encoder configuration", e)
             }
         }
     }
 
-    private fun resolveBestHardwareEncoder(mimeType: String): Triple<String, Boolean, String> {
+    private fun resolveBestHardwareEncoderInfo(mimeType: String): Triple<MediaCodecInfo?, Boolean, String> {
         return try {
             val codecList = MediaCodecList(MediaCodecList.REGULAR_CODECS)
             for (codecInfo in codecList.codecInfos) {
@@ -456,15 +592,15 @@ class ScreenRecordingEngine(
                             !lower.startsWith("omx.google.") && !lower.contains("sw") && !lower.contains("google")
                         }
                         if (isHw) {
-                            return Triple(codecInfo.name, true, mimeType)
+                            return Triple(codecInfo, true, mimeType)
                         }
                     }
                 }
             }
-            Triple(if (mimeType == MediaFormat.MIMETYPE_VIDEO_HEVC) "Hardware HEVC Encoder" else "Hardware AVC Encoder", true, mimeType)
+            Triple(null, true, mimeType)
         } catch (e: Exception) {
             Log.w(tag, "Hardware encoder probing skipped: ${e.message}")
-            Triple("MediaCodec Hardware", true, mimeType)
+            Triple(null, true, mimeType)
         }
     }
 
@@ -514,11 +650,6 @@ class ScreenRecordingEngine(
         }
     }
 
-    /**
-     * Non-blocking codec drain loop:
-     * Drains all available encoded frames with timeout=0L and schedules the next check 8ms later.
-     * Ensures backgroundHandler is never starved when flushCurrentChunk() is posted on user Save tap!
-     */
     private fun startDrainCodecLoop() {
         drainRunnable?.let { backgroundHandler?.removeCallbacks(it) }
 
@@ -615,11 +746,12 @@ class ScreenRecordingEngine(
         }
     }
 
-    private fun startChunkRotationLoop(settings: ReplaySettings) {
+    private fun startChunkRotationLoop(initialSettings: ReplaySettings) {
         chunkRotationJob = engineScope.launch {
             val isSyntheticMode = (mediaProjection == null)
 
             if (isSyntheticMode && bufferManager.getChunkCount() == 0) {
+                val settings = currentSettings ?: initialSettings
                 val seedChunk = bufferManager.createNextChunkFile()
                 FallbackVideoGenerator.generateVideo(
                     outputFile = seedChunk,
@@ -636,12 +768,13 @@ class ScreenRecordingEngine(
             }
 
             while (isActive && isRecording) {
+                val activeSettings = currentSettings ?: initialSettings
                 val elapsed = System.currentTimeMillis() - chunkStartTime
-                if (elapsed >= (settings.chunkDurationSeconds * 1000L)) {
+                if (elapsed >= (activeSettings.chunkDurationSeconds * 1000L)) {
                     requestInstantSyncFrame()
-                    rotateChunk(settings)
+                    rotateChunk(activeSettings)
                 }
-                delay(if (settings.batterySaverVbr) 400L else 200L)
+                delay(if (activeSettings.batterySaverVbr) 400L else 200L)
             }
         }
     }
@@ -697,12 +830,6 @@ class ScreenRecordingEngine(
         }
     }
 
-    /**
-     * Ultra-fast chunk flush when user taps the Save button in-game:
-     * - If the current chunk just started (< 500ms ago or has 0 frames) and there are already buffered chunks,
-     *   returns immediately in 0ms without interrupting the active muxer!
-     * - Otherwise drains ready frames, finalizes the active chunk in < 20ms, and starts the next chunk seamlessly.
-     */
     fun flushCurrentChunk(settings: ReplaySettings, onFlushed: () -> Unit) {
         val handler = backgroundHandler
         if (handler == null || !isRecording) {
@@ -718,8 +845,6 @@ class ScreenRecordingEngine(
                 val durationMs = System.currentTimeMillis() - chunkStartTime
                 val hasBufferedChunks = bufferManager.getChunkCount() > 0
 
-                // If the current chunk is brand new (< 450ms or < 2 frames) and we already have completed chunks in ring buffer,
-                // keep the active muxer running uninterrupted and save the existing buffered chunks immediately!
                 if (hasBufferedChunks && (durationMs < 450L || chunkVideoSampleCount < 2)) {
                     return@post
                 }

@@ -2,37 +2,38 @@ package com.example.data.model
 
 import android.content.Context
 import com.example.util.ScreenDimensionHelper
+import kotlin.math.roundToInt
 
 data class ReplaySettings(
     val bufferDurationSeconds: Int = 60,
     val resolutionWidth: Int = 2400,
     val resolutionHeight: Int = 1080,
-    val resolutionLabel: String = "原生屏幕对齐 (完整无裁切 - 推荐)",
+    val resolutionLabel: String = "原生对齐 (无裁切)",
     val fps: Int = 60,
-    val bitrateMbps: Int = 12,
-    val videoCodec: String = "HEVC", // "HEVC" (H.265 - 高达50%压缩省流) or "AVC" (H.264 - 极速兼容)
-    val autoDetectOrientation: Boolean = true, // 自动识别横竖屏
-    val preferLandscapeForGames: Boolean = true, // 游戏回录优先适配横屏
-    val hdrEnabled: Boolean = false, // 10-bit HDR / 宽色域录制支持
-    val gameLaunchDetectionEnabled: Boolean = true, // 游戏启动自动检测
-    val autoStartOnGameLaunch: Boolean = false, // 检测到游戏启动时自动激活回录
+    val bitrateMbps: Int = 36, // Default 36 Mbps for ultra-sharp, macroblock-free visual quality
+    val videoCodec: String = "HEVC", // "HEVC" (H.265) or "AVC" (H.264)
+    val autoDetectOrientation: Boolean = true,
+    val preferLandscapeForGames: Boolean = true,
+    val hdrEnabled: Boolean = false,
+    val gameLaunchDetectionEnabled: Boolean = true,
+    val autoStartOnGameLaunch: Boolean = false,
     val internalAudioEnabled: Boolean = true,
     val micAudioEnabled: Boolean = false,
     val floatingButtonEnabled: Boolean = true,
     val floatingButtonOpacity: Float = 0.85f,
-    val floatingButtonSizeDp: Int = 48, // 36dp (微型), 48dp (标准), 60dp (大号)
+    val floatingButtonSizeDp: Int = 48,
     val isFloatingButtonCollapsed: Boolean = false,
-    val isGameModeActive: Boolean = false, // 沉浸游戏模式：隐藏非必要UI
-    val volumeKeyShortcutEnabled: Boolean = true, // 音量键快捷组合键触发保存
+    val isGameModeActive: Boolean = false,
+    val volumeKeyShortcutEnabled: Boolean = true,
     val currentGameTitle: String = "王者荣耀",
-    val lowPowerOptimization: Boolean = true,
-    val gamePriorityShield: Boolean = true, // 电竞商业版：游戏优先线程调度保护，0丢帧
-    val smartStorageGuard: Boolean = true, // 智能存储守护：动态配额管理，防止爆满
-    val autoDimFloatingButton: Boolean = true, // 对局静置自动半透明：3秒变浅避让，不挡游戏视野
-    val isProMember: Boolean = false, // 商业化电竞会员特权
-    val proPlanName: String = "未激活", // 会员方案名称
-    val autoThermalGuard: Boolean = true, // 智能温控防掉帧：机身发热自动平滑调优
-    val batterySaverVbr: Boolean = true // VBR动态低功耗：静止画面功耗降低45%
+    val lowPowerOptimization: Boolean = false,
+    val gamePriorityShield: Boolean = true,
+    val smartStorageGuard: Boolean = true,
+    val autoDimFloatingButton: Boolean = true,
+    val isProMember: Boolean = false,
+    val proPlanName: String = "未激活",
+    val autoThermalGuard: Boolean = true,
+    val batterySaverVbr: Boolean = false // Default false so constant/high bitrate prevents macroblocking in fast motion
 ) {
     val chunkDurationSeconds: Int = 10
     val maxChunksInRing: Int get() = (bufferDurationSeconds / chunkDurationSeconds).coerceAtLeast(3)
@@ -41,9 +42,13 @@ data class ReplaySettings(
      * Calculates width and height adapting to the physical display's exact aspect ratio.
      * Prevents any black bars, letterboxing, or game UI clipping.
      */
-    fun getEffectiveDimensions(context: Context? = null, isLandscape: Boolean): Pair<Int, Int> {
+    fun getEffectiveDimensions(
+        context: Context? = null,
+        isLandscape: Boolean,
+        alignStep: Int = 2
+    ): Pair<Int, Int> {
         if (context != null) {
-            return ScreenDimensionHelper.calculateDimensions(context, this, isLandscape)
+            return ScreenDimensionHelper.calculateDimensions(context, this, isLandscape, alignStep)
         }
         val maxDim = maxOf(resolutionWidth, resolutionHeight)
         val minDim = minOf(resolutionWidth, resolutionHeight)
@@ -54,6 +59,33 @@ data class ReplaySettings(
         }
     }
 
+    /**
+     * Computes the target encoder bitrate in bits per second (bps), scaling automatically
+     * with resolution (>1080p) and high frame rates (90/120 FPS) so fast-motion game frames
+     * never suffer from macroblocking or compression blur.
+     */
+    fun getEffectiveBitrateBps(width: Int, height: Int): Int {
+        val baseMbps = bitrateMbps.coerceIn(12, 80)
+        val pixelCount = (width.toLong() * height.toLong()).coerceAtLeast(1280L * 720L)
+        val base1080pPixels = 1920f * 1080f
+        // Scale bitrate up when recording high-res native screens (e.g., 2656x1200 or 2K)
+        val resolutionFactor = (pixelCount.toFloat() / base1080pPixels).coerceIn(0.85f, 1.85f)
+        // Scale bitrate up for 90 FPS / 120 FPS
+        val fpsFactor = when {
+            fps >= 120 -> 1.45f
+            fps >= 90 -> 1.25f
+            fps <= 30 -> 0.80f
+            else -> 1.0f
+        }
+        // AVC (H.264) needs ~25% more bitrate than HEVC (H.265) for equivalent visual sharpness
+        val codecFactor = if (videoCodec.contains("AVC", ignoreCase = true)) 1.25f else 1.0f
+
+        val targetMbps = (baseMbps * resolutionFactor * fpsFactor * codecFactor)
+            .roundToInt()
+            .coerceIn(baseMbps, 80)
+        return targetMbps * 1_000_000
+    }
+
     companion object {
         private const val PREFS_NAME = "game_replay_settings_prefs"
         private const val KEY_BUFFER_DURATION = "key_buffer_duration"
@@ -61,7 +93,7 @@ data class ReplaySettings(
         private const val KEY_RES_HEIGHT = "key_res_height"
         private const val KEY_RES_LABEL = "key_res_label"
         private const val KEY_FPS = "key_fps"
-        private const val KEY_BITRATE = "key_bitrate"
+        private const val KEY_BITRATE_V2 = "key_bitrate_v2_hq"
         private const val KEY_CODEC = "key_codec"
         private const val KEY_AUTO_ORIENTATION = "key_auto_orientation"
         private const val KEY_PREFER_LANDSCAPE = "key_prefer_landscape"
@@ -84,7 +116,7 @@ data class ReplaySettings(
         private const val KEY_IS_PRO = "key_is_pro_member"
         private const val KEY_PRO_PLAN = "key_pro_plan_name"
         private const val KEY_THERMAL_GUARD = "key_thermal_guard"
-        private const val KEY_BATTERY_VBR = "key_battery_vbr"
+        private const val KEY_BATTERY_VBR_V2 = "key_battery_vbr_v2_hq"
 
         fun load(context: Context): ReplaySettings {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -95,7 +127,7 @@ data class ReplaySettings(
                 resolutionHeight = prefs.getInt(KEY_RES_HEIGHT, default.resolutionHeight),
                 resolutionLabel = prefs.getString(KEY_RES_LABEL, default.resolutionLabel) ?: default.resolutionLabel,
                 fps = prefs.getInt(KEY_FPS, default.fps),
-                bitrateMbps = prefs.getInt(KEY_BITRATE, default.bitrateMbps),
+                bitrateMbps = prefs.getInt(KEY_BITRATE_V2, default.bitrateMbps),
                 videoCodec = prefs.getString(KEY_CODEC, default.videoCodec) ?: default.videoCodec,
                 autoDetectOrientation = prefs.getBoolean(KEY_AUTO_ORIENTATION, default.autoDetectOrientation),
                 preferLandscapeForGames = prefs.getBoolean(KEY_PREFER_LANDSCAPE, default.preferLandscapeForGames),
@@ -118,7 +150,7 @@ data class ReplaySettings(
                 isProMember = prefs.getBoolean(KEY_IS_PRO, default.isProMember),
                 proPlanName = prefs.getString(KEY_PRO_PLAN, default.proPlanName) ?: default.proPlanName,
                 autoThermalGuard = prefs.getBoolean(KEY_THERMAL_GUARD, default.autoThermalGuard),
-                batterySaverVbr = prefs.getBoolean(KEY_BATTERY_VBR, default.batterySaverVbr)
+                batterySaverVbr = prefs.getBoolean(KEY_BATTERY_VBR_V2, default.batterySaverVbr)
             )
         }
 
@@ -130,7 +162,7 @@ data class ReplaySettings(
                 .putInt(KEY_RES_HEIGHT, settings.resolutionHeight)
                 .putString(KEY_RES_LABEL, settings.resolutionLabel)
                 .putInt(KEY_FPS, settings.fps)
-                .putInt(KEY_BITRATE, settings.bitrateMbps)
+                .putInt(KEY_BITRATE_V2, settings.bitrateMbps)
                 .putString(KEY_CODEC, settings.videoCodec)
                 .putBoolean(KEY_AUTO_ORIENTATION, settings.autoDetectOrientation)
                 .putBoolean(KEY_PREFER_LANDSCAPE, settings.preferLandscapeForGames)
@@ -153,7 +185,7 @@ data class ReplaySettings(
                 .putBoolean(KEY_IS_PRO, settings.isProMember)
                 .putString(KEY_PRO_PLAN, settings.proPlanName)
                 .putBoolean(KEY_THERMAL_GUARD, settings.autoThermalGuard)
-                .putBoolean(KEY_BATTERY_VBR, settings.batterySaverVbr)
+                .putBoolean(KEY_BATTERY_VBR_V2, settings.batterySaverVbr)
                 .commit()
         }
     }

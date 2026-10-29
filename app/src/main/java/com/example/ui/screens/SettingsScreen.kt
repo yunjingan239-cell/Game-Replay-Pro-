@@ -180,7 +180,7 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // 1.2 Video Quality / Resolution
-                    Text("视频质量与分辨率 (自动按屏幕原生比例对齐，杜绝画面裁剪)", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("视频质量与分辨率 (原生1:1像素直通，杜绝缩放模糊)", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(modifier = Modifier.height(8.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -188,7 +188,7 @@ fun SettingsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val row1 = listOf(
-                                Triple(2400, 1080, "原生对齐 (无裁切)"),
+                                Triple(2400, 1080, "原生对齐 (1:1原画)"),
                                 Triple(1920, 1080, "1080P 超清对齐")
                             )
                             row1.forEach { (w, h, label) ->
@@ -202,11 +202,17 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
+                                            val recommendedBitrate = if (label.contains("原生")) {
+                                                maxOf(settings.bitrateMbps, 36)
+                                            } else {
+                                                maxOf(settings.bitrateMbps, 24)
+                                            }
                                             onUpdateSettings(
                                                 settings.copy(
                                                     resolutionWidth = w,
                                                     resolutionHeight = h,
-                                                    resolutionLabel = label
+                                                    resolutionLabel = label,
+                                                    bitrateMbps = recommendedBitrate
                                                 )
                                             )
                                         }
@@ -229,7 +235,7 @@ fun SettingsScreen(
                         ) {
                             val row2 = listOf(
                                 Triple(1280, 720, "720P 极速省电"),
-                                Triple(2560, 1440, "2K 旗舰超清")
+                                Triple(2560, 1440, "2K 旗舰原画")
                             )
                             row2.forEach { (w, h, label) ->
                                 val isSelected = (label.contains("720P") && settings.resolutionLabel.contains("720")) ||
@@ -242,11 +248,18 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable {
+                                            val recommendedBitrate = if (label.contains("2K")) {
+                                                50
+                                            } else {
+                                                16
+                                            }
                                             onUpdateSettings(
                                                 settings.copy(
                                                     resolutionWidth = w,
                                                     resolutionHeight = h,
-                                                    resolutionLabel = label
+                                                    resolutionLabel = label,
+                                                    bitrateMbps = recommendedBitrate,
+                                                    batterySaverVbr = if (label.contains("2K")) false else settings.batterySaverVbr
                                                 )
                                             )
                                         }
@@ -258,6 +271,59 @@ fun SettingsScreen(
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(vertical = 10.dp),
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // 1.25 Bitrate / Visual Clarity Settings (16 / 24 / 36 / 50 Mbps)
+                    Text("画面清晰度与码率 (高码率+硬件QP锁止，彻底消除块状噪点)", color = TextTitle, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val bitrateOptions = listOf(
+                            Triple(16, "16M", "均衡省流"),
+                            Triple(24, "24M", "高清锐利"),
+                            Triple(36, "36M", "超清无噪"),
+                            Triple(50, "50M", "肉眼原画")
+                        )
+                        bitrateOptions.forEach { (mbps, title, sub) ->
+                            val isSelected = settings.bitrateMbps == mbps ||
+                                (mbps == 36 && settings.bitrateMbps !in listOf(16, 24, 36, 50))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSelected) PrimaryBlue else Color(0xFFF7F9FC),
+                                border = BorderStroke(1.dp, if (isSelected) PrimaryBlue else BorderSubtle),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        onUpdateSettings(
+                                            settings.copy(
+                                                bitrateMbps = mbps,
+                                                batterySaverVbr = if (mbps >= 36) false else settings.batterySaverVbr
+                                            )
+                                        )
+                                    }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = title,
+                                        color = if (isSelected) PureWhite else TextTitle,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = sub,
+                                        color = if (isSelected) PureWhite.copy(alpha = 0.85f) else TextMuted,
+                                        fontSize = 10.sp
                                     )
                                 }
                             }
