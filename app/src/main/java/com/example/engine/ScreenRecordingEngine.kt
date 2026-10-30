@@ -128,12 +128,29 @@ class ScreenRecordingEngine(
         backgroundHandler = Handler(handlerThread!!.looper)
 
         try {
+            // Android 14+ (API 34+) strictly requires registering MediaProjection.Callback
+            // BEFORE any AudioPlaybackCaptureConfiguration or createVirtualDisplay call.
+            projection?.let { proj ->
+                if (projectionCallback == null) {
+                    val callback = object : MediaProjection.Callback() {
+                        override fun onStop() {
+                            super.onStop()
+                            Log.i(tag, "MediaProjection stopped by system")
+                            stopRecording()
+                            onProjectionStopped?.invoke()
+                        }
+                    }
+                    projectionCallback = callback
+                    proj.registerCallback(callback, backgroundHandler)
+                }
+            }
+
             setupAudioEngine(settings)
             setupCodecAndVirtualDisplay(settings)
             startChunkRotationLoop(settings)
             setupDisplayOrientationMonitoring(settings)
             Log.i(tag, "High-fidelity replay engine active ($encoderName, MIME=$activeMimeType, res=${currentWidth}x${currentHeight})")
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Log.e(tag, "Failed to start hardware recording engine", e)
             onError("硬件录制编码器初始化失败: ${e.localizedMessage}")
             stopRecording()
@@ -343,7 +360,7 @@ class ScreenRecordingEngine(
             return if (!codecName.isNullOrBlank()) {
                 try {
                     MediaCodec.createByCodecName(codecName)
-                } catch (_: Exception) {
+                } catch (_: Throwable) {
                     MediaCodec.createEncoderByType(mime)
                 }
             } else {
@@ -351,9 +368,21 @@ class ScreenRecordingEngine(
             }
         }
 
+        fun releaseQuietly(codec: MediaCodec?) {
+            try {
+                inputSurface?.release()
+            } catch (_: Throwable) {}
+            inputSurface = null
+            try {
+                codec?.release()
+            } catch (_: Throwable) {}
+        }
+
         // Attempt 1: Maximum visual quality with explicit QP clamping, BT.709 Full Range, and CBR/VBR tuning
+        var candidateCodec: MediaCodec? = null
         try {
             val codec = instantiateCodec()
+            candidateCodec = codec
             val format = createEncoderVideoFormat(
                 mime = mime,
                 capabilities = capabilities,
@@ -369,13 +398,16 @@ class ScreenRecordingEngine(
             inputSurface = codec.createInputSurface()
             codec.start()
             return codec
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            releaseQuietly(candidateCodec)
             Log.w(tag, "Advanced HQ format configure note (${e.message}), retrying standard high-bitrate format")
         }
 
         // Attempt 2: Standard High-Bitrate SDR format at native dimensions
+        candidateCodec = null
         try {
             val codec = instantiateCodec()
+            candidateCodec = codec
             isHdrEnabled = false
             val format = createEncoderVideoFormat(
                 mime = mime,
@@ -392,27 +424,57 @@ class ScreenRecordingEngine(
             inputSurface = codec.createInputSurface()
             codec.start()
             return codec
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            releaseQuietly(candidateCodec)
             Log.w(tag, "Native 2px aligned configure note (${e.message}), falling back to 16px aligned high-bitrate")
         }
 
-        // Attempt 3: 16-pixel aligned fallback for strict legacy encoders
-        val (safeW, safeH) = settings.getEffectiveDimensions(context, isLandscape, alignStep = 16)
-        currentWidth = safeW
-        currentHeight = safeH
+        // Attempt 3: 16-pixel aligned fallback for strict hardware encoders
+        candidateCodec = null
+        try {
+            val (safeW, safeH) = settings.getEffectiveDimensions(context, isLandscape, alignStep = 16)
+            currentWidth = safeW
+            currentHeight = safeH
+            val codec = instantiateCodec()
+            candidateCodec = codec
+            val fallbackFormat = createEncoderVideoFormat(
+                mime = mime,
+                capabilities = null,
+                width = safeW,
+                height = safeH,
+                bitrate = bitrate.coerceAtMost(36_000_000),
+                fps = fps.coerceAtMost(60),
+                enableHdr = false,
+                useBatterySaverVbr = true,
+                includeAdvancedQualityKeys = false
+            )
+            codec.configure(fallbackFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            inputSurface = codec.createInputSurface()
+            codec.start()
+            return codec
+        } catch (e: Throwable) {
+            releaseQuietly(candidateCodec)
+            Log.w(tag, "16px aligned native configure note (${e.message}), falling back to 1080p aligned")
+        }
+
+        // Attempt 4: Universal 1080p 16-pixel aligned fallback (for devices whose hardware encoder caps at 1080p)
+        val fallbackSettings = settings.copy(resolutionLabel = "1080P 超清")
+        val (fhdW, fhdH) = fallbackSettings.getEffectiveDimensions(context, isLandscape, alignStep = 16)
+        currentWidth = fhdW
+        currentHeight = fhdH
         val codec = instantiateCodec()
-        val fallbackFormat = createEncoderVideoFormat(
+        val fhdFormat = createEncoderVideoFormat(
             mime = mime,
             capabilities = null,
-            width = safeW,
-            height = safeH,
-            bitrate = bitrate,
+            width = fhdW,
+            height = fhdH,
+            bitrate = bitrate.coerceIn(16_000_000, 32_000_000),
             fps = fps.coerceAtMost(60),
             enableHdr = false,
             useBatterySaverVbr = true,
             includeAdvancedQualityKeys = false
         )
-        codec.configure(fallbackFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        codec.configure(fhdFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         inputSurface = codec.createInputSurface()
         codec.start()
         return codec

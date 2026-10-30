@@ -21,6 +21,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,14 +48,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.VolumeOff
@@ -63,6 +66,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -76,11 +80,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -92,13 +99,16 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.example.data.local.ReplayClip
+import com.example.ui.components.InteractiveFloatingBallOverlay
 import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.PureWhite
-import com.example.ui.theme.TextMuted
+import com.example.ui.theme.SoftGreen
+import com.example.ui.theme.SoftRed
 import com.example.util.MediaExportHelper
 import com.example.util.VideoThumbnailView
 import kotlinx.coroutines.delay
 import java.io.File
+import kotlin.math.sin
 
 private data class VideoDisplayMeta(
     val displayWidth: Int,
@@ -108,42 +118,42 @@ private data class VideoDisplayMeta(
 )
 
 /**
- * Full-Window Cinema Video Player Overlay.
- *
- * Designed to maximize video display area while keeping all playback and export controls
- * minimalist and semi-transparent:
- * 1. Hosted directly in MainActivity's root window (instead of a separate Dialog PhoneWindow)
- *    so switching between portrait preview and fullscreen landscape updates the window bounds
- *    natively and seamlessly without any narrow-dialog clipping or aspect-ratio distortion.
- * 2. Initial Preview Mode: Uses 100% of available screen width for the video canvas with sleek,
- *    minimalist semi-transparent dark glass controls (Top bar with Title, Save, Share, Close;
- *    Bottom capsule with Play/Pause, Time, Progress Slider, Replay, Mute, Fullscreen).
- * 3. Fullscreen Mode: Rotates the Activity window to landscape for horizontal game videos,
- *    hides system bars, and fits the video strictly to its native aspect ratio.
+ * Page 5: Video Preview Player & Interactive Floating Ball Stage.
+ * - Preserves original video aspect ratio without stretching
+ * - Supports both real MP4 playback and simulated interactive playback for prototype demo clips
+ * - Top bar with Back action, Video Title, Favorite, Save, Share, and Floating Ball Interactive Demo toggle
+ * - Dark semi-transparent playback control bar that auto-hides after interaction
+ * - Avoids overlapping floating elements by coordinating visibility
  */
 @Composable
 fun VideoPlayerDialog(
     clip: ReplayClip,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onToggleFavorite: ((ReplayClip) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val videoFile = remember(clip.filePath) { File(clip.filePath) }
+    val isRealFilePresent = remember(videoFile.absolutePath) {
+        videoFile.exists() && videoFile.length() > 0L
+    }
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isPrepared by remember { mutableStateOf(false) }
+    var isPrepared by remember { mutableStateOf(!isRealFilePresent) }
     var isSeeking by remember { mutableStateOf(false) }
     var currentPosMs by remember { mutableIntStateOf(0) }
-    var totalDurationMs by remember { mutableIntStateOf((clip.durationSeconds * 1000).coerceAtLeast(1000)) }
+    var totalDurationMs by remember { mutableIntStateOf((clip.durationSeconds * 1000).coerceAtLeast(10_000)) }
     var isDragging by remember { mutableStateOf(false) }
     var dragProgressMs by remember { mutableFloatStateOf(0f) }
     var isControlsVisible by remember { mutableStateOf(true) }
     var isSavedToGallery by remember { mutableStateOf(false) }
+    var isFavoriteLocal by remember(clip.id, clip.isFavorite) { mutableStateOf(clip.isFavorite) }
     var isFullscreen by remember { mutableStateOf(false) }
     var isMuted by remember { mutableStateOf(false) }
+    var showFloatingBallInPlayer by remember { mutableStateOf(false) }
     var seekFeedback by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var actionFeedbackBanner by remember { mutableStateOf<String?>(null) }
 
-    // Extract initial video dimensions & rotation metadata
     val initialMeta = remember(videoFile.absolutePath, clip.resolution) {
         extractVideoDisplayMetadata(videoFile, clip.resolution)
     }
@@ -155,7 +165,6 @@ fun VideoPlayerDialog(
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var surfaceRef by remember { mutableStateOf<Surface?>(null) }
 
-    // Handle Back button: exit fullscreen first, or dismiss overlay when in preview mode
     BackHandler {
         if (isFullscreen) {
             isFullscreen = false
@@ -164,7 +173,14 @@ fun VideoPlayerDialog(
         }
     }
 
-    // Manage Activity screen orientation and system bars for Fullscreen vs Preview mode
+    LaunchedEffect(actionFeedbackBanner) {
+        if (actionFeedbackBanner != null) {
+            delay(2200)
+            actionFeedbackBanner = null
+        }
+    }
+
+    // Manage screen orientation and system bars for Fullscreen vs Preview mode
     DisposableEffect(isFullscreen, videoAspectRatio) {
         val window = activity?.window
         val insetsController = if (window != null) {
@@ -193,7 +209,6 @@ fun VideoPlayerDialog(
         onDispose {}
     }
 
-    // Restore default orientation & system bars when player overlay is completely closed
     DisposableEffect(Unit) {
         onDispose {
             val window = activity?.window
@@ -207,9 +222,10 @@ fun VideoPlayerDialog(
     }
 
     fun performSeek(targetMs: Int) {
-        val mp = mediaPlayer ?: return
         val safeTarget = targetMs.coerceIn(0, totalDurationMs)
         currentPosMs = safeTarget
+        if (!isRealFilePresent) return
+        val mp = mediaPlayer ?: return
         isSeeking = true
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -223,6 +239,11 @@ fun VideoPlayerDialog(
     }
 
     fun togglePlayPause() {
+        if (!isRealFilePresent) {
+            isPlaying = !isPlaying
+            if (!isPlaying) isControlsVisible = true
+            return
+        }
         val mp = mediaPlayer ?: return
         try {
             if (mp.isPlaying) {
@@ -237,8 +258,12 @@ fun VideoPlayerDialog(
     }
 
     fun toggleMute() {
-        val mp = mediaPlayer ?: return
         isMuted = !isMuted
+        if (!isRealFilePresent) {
+            actionFeedbackBanner = if (isMuted) "已静音" else "已开启声音"
+            return
+        }
+        val mp = mediaPlayer ?: return
         try {
             if (isMuted) {
                 mp.setVolume(0f, 0f)
@@ -249,7 +274,7 @@ fun VideoPlayerDialog(
     }
 
     fun saveClipToGallery() {
-        if (videoFile.exists()) {
+        if (isRealFilePresent) {
             val result = MediaExportHelper.saveVideoToGallery(
                 context = context,
                 videoFile = videoFile,
@@ -257,10 +282,13 @@ fun VideoPlayerDialog(
             )
             if (result.isSuccess) {
                 isSavedToGallery = true
-                Toast.makeText(context, "已保存至系统相册", Toast.LENGTH_SHORT).show()
+                actionFeedbackBanner = "已将真实视频文件保存至系统相册"
             } else {
-                Toast.makeText(context, "保存失败", Toast.LENGTH_SHORT).show()
+                actionFeedbackBanner = "保存到相册失败"
             }
+        } else {
+            isSavedToGallery = true
+            actionFeedbackBanner = "原型模拟成功：当前为演示预览片段，开启回录后可保存真实录像文件"
         }
     }
 
@@ -273,9 +301,9 @@ fun VideoPlayerDialog(
         videoAspectRatio = (dispW.toFloat() / dispH.toFloat()).coerceIn(0.35f, 3.0f)
     }
 
-    // Initialize MediaPlayer lifecycle
-    DisposableEffect(videoFile.absolutePath) {
-        if (!videoFile.exists()) {
+    // Initialize MediaPlayer when a real video file exists
+    DisposableEffect(videoFile.absolutePath, isRealFilePresent) {
+        if (!isRealFilePresent) {
             onDispose {}
         } else {
             val mp = MediaPlayer().apply {
@@ -343,26 +371,30 @@ fun VideoPlayerDialog(
         }
     }
 
-    // Periodic progress updater while playing
-    LaunchedEffect(isPrepared, isPlaying, isDragging, isSeeking) {
+    // Progress loop for both real MediaPlayer and simulated prototype playback
+    LaunchedEffect(isPrepared, isPlaying, isDragging, isSeeking, isRealFilePresent) {
         while (isPrepared && isPlaying && !isDragging && !isSeeking) {
-            val mp = mediaPlayer
-            if (mp != null) {
-                try {
-                    if (mp.isPlaying) {
-                        currentPosMs = mp.currentPosition
-                        val dur = mp.duration
-                        if (dur > 0) {
-                            totalDurationMs = dur
+            if (isRealFilePresent) {
+                val mp = mediaPlayer
+                if (mp != null) {
+                    try {
+                        if (mp.isPlaying) {
+                            currentPosMs = mp.currentPosition
+                            val dur = mp.duration
+                            if (dur > 0) {
+                                totalDurationMs = dur
+                            }
                         }
-                    }
-                } catch (_: Exception) {}
+                    } catch (_: Exception) {}
+                }
+            } else {
+                currentPosMs = (currentPosMs + 120) % totalDurationMs.coerceAtLeast(1000)
             }
             delay(120)
         }
     }
 
-    // Auto-hide minimalist semi-transparent controls after 3.2 seconds during active playback
+    // Auto-hide controls after 3.2 seconds during active playback
     LaunchedEffect(isControlsVisible, isPlaying, isDragging, isFullscreen) {
         if (isControlsVisible && isPlaying && !isDragging) {
             delay(3200)
@@ -370,7 +402,6 @@ fun VideoPlayerDialog(
         }
     }
 
-    // Reset seek badge feedback after 600ms
     LaunchedEffect(seekFeedback) {
         if (seekFeedback != null) {
             delay(600)
@@ -404,51 +435,40 @@ fun VideoPlayerDialog(
         (totalDurationMs / 1000).coerceIn(1, 300)
     }
 
-    // Root Full-Window Cinema Stage (no separate Dialog PhoneWindow)
+    // Root Player Stage
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isFullscreen) Color.Black else Color.Black.copy(alpha = 0.88f))
+            .background(Color(0xFF0E1218))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (isFullscreen) {
-                    isControlsVisible = !isControlsVisible
-                } else {
-                    onDismiss()
-                }
+                isControlsVisible = !isControlsVisible
             },
         contentAlignment = Alignment.Center
     ) {
-        // 1. Maximized Video Canvas (100% width, strict aspect-ratio fit without any distortion)
+        // 1. Video Canvas strictly maintaining original aspect ratio
         val stageModifier = if (isFullscreen) {
             Modifier.fillMaxSize()
         } else if (videoAspectRatio < 1.0f) {
-            // Portrait video in preview mode: fill maximum screen area
             Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.92f)
+                .fillMaxHeight(0.88f)
         } else {
-            // Landscape video in preview mode: span 100% full screen width with zero side padding
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(videoAspectRatio.coerceIn(1.0f, 2.5f))
+                .aspectRatio(videoAspectRatio.coerceIn(1.0f, 2.4f))
         }
 
         Box(
-            modifier = stageModifier
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) {
-                    isControlsVisible = !isControlsVisible
-                },
+            modifier = stageModifier,
             contentAlignment = Alignment.Center
         ) {
             VideoPlayerSurface(
                 clip = clip,
                 videoFile = videoFile,
+                isRealFilePresent = isRealFilePresent,
                 videoAspectRatio = videoAspectRatio,
                 videoWidthPx = videoWidthPx,
                 videoHeightPx = videoHeightPx,
@@ -467,108 +487,164 @@ fun VideoPlayerDialog(
             )
         }
 
-        // 2. Minimalist Semi-Transparent Top HUD Overlay
+        // 2. Top Navigation & Action Bar (Back + Title + Favorite/Save/Share/FloatingBall Toggle)
         AnimatedVisibility(
             visible = isControlsVisible || !isPlaying,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.58f),
-                                Color.Black.copy(alpha = 0.22f),
-                                Color.Transparent
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF0E1218).copy(alpha = 0.82f),
+                                    Color(0xFF0E1218).copy(alpha = 0.35f),
+                                    Color.Transparent
+                                )
                             )
                         )
-                    )
-                    .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier)
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {},
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Left: Back/Close + Title & Specs
-                Row(
+                        .then(if (!isFullscreen) Modifier.statusBarsPadding() else Modifier)
+                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {},
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    if (isFullscreen) {
+                    // Left: Back Button + Video Name & Specs
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         MinimalistCircleIconButton(
                             icon = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "退出全屏",
-                            onClick = { isFullscreen = false }
+                            contentDescription = "返回",
+                            onClick = {
+                                if (isFullscreen) {
+                                    isFullscreen = false
+                                } else {
+                                    onDismiss()
+                                }
+                            }
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = clip.title,
+                                color = PureWhite,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = "${clip.gameName} • ${clip.resolution} • ${displayDurationSec}秒" +
+                                    if (!isRealFilePresent) " • 原型预览" else "",
+                                color = PureWhite.copy(alpha = 0.68f),
+                                fontSize = 11.sp
+                            )
+                        }
                     }
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(
-                            text = clip.title,
-                            color = PureWhite.copy(alpha = 0.92f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Right: Favorite, Save, Share, Floating Ball Preview Toggle
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Favorite Toggle
+                        MinimalistCircleIconButton(
+                            icon = if (isFavoriteLocal) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = if (isFavoriteLocal) "取消收藏" else "收藏",
+                            iconTint = if (isFavoriteLocal) SoftRed else PureWhite,
+                            onClick = {
+                                isFavoriteLocal = !isFavoriteLocal
+                                onToggleFavorite?.invoke(clip)
+                                actionFeedbackBanner = if (isFavoriteLocal) "已加入我的收藏" else "已取消收藏"
+                            }
                         )
-                        Text(
-                            text = "${clip.resolution} • ${displayDurationSec}秒",
-                            color = PureWhite.copy(alpha = 0.65f),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
+
+                        // Save to Gallery
+                        MinimalistGlassPillButton(
+                            icon = if (isSavedToGallery) Icons.Default.Check else Icons.Default.Download,
+                            label = if (isSavedToGallery) "已存" else "保存",
+                            accentColor = if (isSavedToGallery) SoftGreen.copy(alpha = 0.65f) else Color(0xFF181F29).copy(alpha = 0.72f),
+                            onClick = { saveClipToGallery() }
+                        )
+
+                        // Share
+                        MinimalistGlassPillButton(
+                            icon = Icons.Default.Share,
+                            label = "分享",
+                            accentColor = Color(0xFF181F29).copy(alpha = 0.72f),
+                            onClick = {
+                                if (isRealFilePresent) {
+                                    shareVideo(context, videoFile)
+                                } else {
+                                    actionFeedbackBanner = "原型演示提示：已触发分享操作模拟"
+                                }
+                            }
+                        )
+
+                        // Floating Ball Interactive Overlay Toggle (Coordinate visibility to avoid overlap)
+                        MinimalistGlassPillButton(
+                            icon = Icons.Default.RadioButtonChecked,
+                            label = if (showFloatingBallInPlayer) "隐藏悬浮球" else "悬浮球",
+                            accentColor = if (showFloatingBallInPlayer) PrimaryBlue.copy(alpha = 0.85f) else Color(0xFF181F29).copy(alpha = 0.72f),
+                            onClick = {
+                                showFloatingBallInPlayer = !showFloatingBallInPlayer
+                            }
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                // Right: Minimalist Semi-Transparent Action Pills (Save, Share, Fullscreen, Close)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                // Feedback toast banner inside player
+                AnimatedVisibility(
+                    visible = actionFeedbackBanner != null,
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .padding(top = 4.dp)
                 ) {
-                    MinimalistGlassPillButton(
-                        icon = if (isSavedToGallery) Icons.Default.Check else Icons.Default.Download,
-                        label = if (isSavedToGallery) "已保存" else "保存",
-                        accentColor = if (isSavedToGallery) Color(0xFF10B981).copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.38f),
-                        onClick = { saveClipToGallery() }
-                    )
-
-                    MinimalistGlassPillButton(
-                        icon = Icons.Default.Share,
-                        label = "分享",
-                        accentColor = Color.Black.copy(alpha = 0.38f),
-                        onClick = { shareVideo(context, videoFile) }
-                    )
-
-                    MinimalistCircleIconButton(
-                        icon = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        contentDescription = if (isFullscreen) "退出全屏" else "全屏播放",
-                        onClick = { isFullscreen = !isFullscreen }
-                    )
-
-                    MinimalistCircleIconButton(
-                        icon = Icons.Default.Close,
-                        contentDescription = "关闭",
-                        onClick = {
-                            if (isFullscreen) {
-                                isFullscreen = false
-                            } else {
-                                onDismiss()
-                            }
+                    actionFeedbackBanner?.let { msg ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFF181F29).copy(alpha = 0.88f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+                        ) {
+                            Text(
+                                text = msg,
+                                color = PureWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            )
                         }
-                    )
+                    }
                 }
             }
         }
 
-        // 3. Minimalist Semi-Transparent Bottom Playback Capsule Overlay
+        // 3. Interactive Floating Ball Overlay on top of game video (Positioned at CenterEnd, non-overlapping with Top/Bottom bars)
+        InteractiveFloatingBallOverlay(
+            visible = showFloatingBallInPlayer,
+            isBuffering = true,
+            bufferDurationSeconds = displayDurationSec,
+            bufferedSeconds = (currentPosMs / 1000).coerceIn(1, displayDurationSec),
+            opacity = 0.88f,
+            sizeDp = 46,
+            onSaveClick = {
+                actionFeedbackBanner = "悬浮球模拟交互：已触发一键保存过去 ${displayDurationSec} 秒精彩瞬间"
+            },
+            onClosePreview = { showFloatingBallInPlayer = false }
+        )
+
+        // 4. Dark Semi-Transparent Bottom Playback Control Bar
         AnimatedVisibility(
             visible = isControlsVisible || !isPlaying,
             enter = fadeIn(),
@@ -584,7 +660,7 @@ fun VideoPlayerDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (!isFullscreen) Modifier.navigationBarsPadding() else Modifier)
-                    .padding(horizontal = 12.dp, vertical = 12.dp)
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -593,36 +669,38 @@ fun VideoPlayerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(Color.Black.copy(alpha = 0.42f))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(22.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF14181F).copy(alpha = 0.76f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.16f), RoundedCornerShape(18.dp))
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // Play / Pause
                     IconButton(
                         onClick = { togglePlayPause() },
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier
+                            .size(34.dp)
+                            .testTag("player_play_pause_btn")
                     ) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "暂停" else "播放",
                             tint = PureWhite,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
-                    // Current / Total Time
+                    // Time Readout
                     Text(
-                        text = "${formatDurationMs(displayPos)}/${formatDurationMs(totalDurationMs)}",
-                        color = PureWhite.copy(alpha = 0.88f),
-                        fontSize = 10.sp,
+                        text = "${formatDurationMs(displayPos)} / ${formatDurationMs(totalDurationMs)}",
+                        color = PureWhite.copy(alpha = 0.90f),
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Medium
                     )
 
-                    // Slim Progress Slider
+                    // Progress Slider
                     Slider(
                         value = safeSliderVal,
                         onValueChange = { newValue ->
@@ -636,50 +714,52 @@ fun VideoPlayerDialog(
                         valueRange = 0f..maxSliderVal,
                         colors = SliderDefaults.colors(
                             thumbColor = PureWhite,
-                            activeTrackColor = PrimaryBlue.copy(alpha = 0.9f),
+                            activeTrackColor = PrimaryBlue,
                             inactiveTrackColor = Color.White.copy(alpha = 0.25f)
                         ),
                         modifier = Modifier
                             .weight(1f)
-                            .height(26.dp)
+                            .height(28.dp)
                     )
 
                     // Replay from 00:00
                     IconButton(
                         onClick = { performSeek(0) },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(30.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Replay,
                             contentDescription = "重播",
                             tint = PureWhite.copy(alpha = 0.85f),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(17.dp)
                         )
                     }
 
-                    // Mute / Unmute
+                    // Volume / Mute Toggle
                     IconButton(
                         onClick = { toggleMute() },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(30.dp)
                     ) {
                         Icon(
                             imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                            contentDescription = "静音切换",
-                            tint = if (isMuted) Color(0xFFFF6B6B) else PureWhite.copy(alpha = 0.85f),
-                            modifier = Modifier.size(16.dp)
+                            contentDescription = "音量开关",
+                            tint = if (isMuted) SoftRed else PureWhite.copy(alpha = 0.85f),
+                            modifier = Modifier.size(17.dp)
                         )
                     }
 
-                    // Fullscreen / Expand Toggle
+                    // Fullscreen Toggle
                     IconButton(
                         onClick = { isFullscreen = !isFullscreen },
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier
+                            .size(30.dp)
+                            .testTag("player_fullscreen_btn")
                     ) {
                         Icon(
                             imageVector = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                            contentDescription = if (isFullscreen) "退出全屏" else "全屏放大",
+                            contentDescription = if (isFullscreen) "退出全屏" else "全屏播放",
                             tint = PureWhite,
-                            modifier = Modifier.size(19.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -699,21 +779,21 @@ private fun MinimalistGlassPillButton(
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
             .background(accentColor)
-            .border(0.5.dp, Color.White.copy(alpha = 0.22f), RoundedCornerShape(16.dp))
+            .border(0.5.dp, Color.White.copy(alpha = 0.20f), RoundedCornerShape(16.dp))
             .clickable { onClick() }
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = PureWhite.copy(alpha = 0.92f),
-            modifier = Modifier.size(13.dp)
+            tint = PureWhite,
+            modifier = Modifier.size(14.dp)
         )
         Text(
             text = label,
-            color = PureWhite.copy(alpha = 0.92f),
+            color = PureWhite,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
         )
@@ -724,33 +804,32 @@ private fun MinimalistGlassPillButton(
 private fun MinimalistCircleIconButton(
     icon: ImageVector,
     contentDescription: String,
+    iconTint: Color = PureWhite,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(30.dp)
+            .size(34.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.38f))
-            .border(0.5.dp, Color.White.copy(alpha = 0.22f), CircleShape)
+            .background(Color(0xFF181F29).copy(alpha = 0.72f))
+            .border(0.5.dp, Color.White.copy(alpha = 0.20f), CircleShape)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = PureWhite.copy(alpha = 0.92f),
-            modifier = Modifier.size(16.dp)
+            tint = iconTint,
+            modifier = Modifier.size(17.dp)
         )
     }
 }
 
-/**
- * Reusable, High-Fidelity Video Surface with Strict Aspect-Ratio Fitting and Post-Layout Matrix Sync.
- */
 @Composable
 private fun VideoPlayerSurface(
     clip: ReplayClip,
     videoFile: File,
+    isRealFilePresent: Boolean,
     videoAspectRatio: Float,
     videoWidthPx: Int,
     videoHeightPx: Int,
@@ -787,28 +866,26 @@ private fun VideoPlayerSurface(
             },
         contentAlignment = Alignment.Center
     ) {
-        if (videoFile.exists()) {
-            // Fit the video canvas strictly to videoAspectRatio inside the available container
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxSize(),
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val containerRatio = if (maxHeight > 0.dp) maxWidth / maxHeight else safeAspectRatio
+            val fittedVideoModifier = if (containerRatio > safeAspectRatio) {
+                Modifier
+                    .fillMaxHeight()
+                    .aspectRatio(safeAspectRatio)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(safeAspectRatio)
+            }
+
+            Box(
+                modifier = fittedVideoModifier,
                 contentAlignment = Alignment.Center
             ) {
-                val containerRatio = if (maxHeight > 0.dp) maxWidth / maxHeight else safeAspectRatio
-                val fittedVideoModifier = if (containerRatio > safeAspectRatio) {
-                    Modifier
-                        .fillMaxHeight()
-                        .aspectRatio(safeAspectRatio)
-                } else {
-                    Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(safeAspectRatio)
-                }
-
-                Box(
-                    modifier = fittedVideoModifier,
-                    contentAlignment = Alignment.Center
-                ) {
-                    // 1. Placeholder before first frame renders
+                if (isRealFilePresent) {
                     if (!isPrepared) {
                         VideoThumbnailView(
                             clip = clip,
@@ -816,7 +893,6 @@ private fun VideoPlayerSurface(
                         )
                     }
 
-                    // 2. Hardware TextureView Renderer with Post-Layout Center-Fit Matrix Protection
                     AndroidView(
                         factory = { ctx ->
                             TextureView(ctx).apply {
@@ -873,89 +949,179 @@ private fun VideoPlayerSurface(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
-                }
-            }
-
-            // 3. Minimalist Semi-Transparent Center Play/Pause Button
-            AnimatedVisibility(
-                visible = isControlsVisible || !isPlaying,
-                enter = fadeIn() + scaleIn(initialScale = 0.85f),
-                exit = fadeOut() + scaleOut(targetScale = 0.85f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.36f))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.22f), CircleShape)
-                        .clickable { onTogglePlayPause() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "暂停" else "播放",
-                        tint = PureWhite.copy(alpha = 0.92f),
-                        modifier = Modifier.size(24.dp)
+                } else {
+                    // Interactive Simulated Game Highlight Stage when previewing prototype demo clips
+                    SimulatedHighlightStage(
+                        clip = clip,
+                        currentPosMs = currentPosMs,
+                        totalDurationMs = totalDurationMs,
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }
+        }
 
-            // 4. Ultra-thin 2dp bottom progress line when controls auto-hide
-            if (!isControlsVisible && isPlaying) {
-                val progressFraction = (currentPosMs.toFloat() / totalDurationMs.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth(progressFraction)
-                        .height(2.dp)
-                        .background(PrimaryBlue.copy(alpha = 0.75f))
+        // Center Play/Pause Button
+        AnimatedVisibility(
+            visible = isControlsVisible || !isPlaying,
+            enter = fadeIn() + scaleIn(initialScale = 0.85f),
+            exit = fadeOut() + scaleOut(targetScale = 0.85f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF14181F).copy(alpha = 0.55f))
+                    .border(1.dp, Color.White.copy(alpha = 0.28f), CircleShape)
+                    .clickable { onTogglePlayPause() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "暂停" else "播放",
+                    tint = PureWhite,
+                    modifier = Modifier.size(26.dp)
                 )
             }
+        }
 
-            // 5. Double-tap seek feedback badge (-5s / +5s)
-            seekFeedback?.let { (isLeft, label) ->
-                Box(
-                    modifier = Modifier
-                        .align(if (isLeft) Alignment.CenterStart else Alignment.CenterEnd)
-                        .padding(horizontal = 24.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.Black.copy(alpha = 0.55f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center
+        // Ultra-thin 2dp progress indicator when controls auto-hide
+        if (!isControlsVisible && isPlaying) {
+            val progressFraction = (currentPosMs.toFloat() / totalDurationMs.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth(progressFraction)
+                    .height(2.dp)
+                    .background(PrimaryBlue)
+            )
+        }
+
+        // Double-tap seek feedback badge (-5s / +5s)
+        seekFeedback?.let { (isLeft, label) ->
+            Box(
+                modifier = Modifier
+                    .align(if (isLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 24.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0xFF14181F).copy(alpha = 0.65f))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isLeft) Icons.Default.FastRewind else Icons.Default.FastForward,
-                            contentDescription = label,
-                            tint = PureWhite,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = label,
-                            color = PureWhite,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Icon(
+                        imageVector = if (isLeft) Icons.Default.FastRewind else Icons.Default.FastForward,
+                        contentDescription = label,
+                        tint = PureWhite,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = label,
+                        color = PureWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
-        } else {
-            Text(
-                text = "视频文件未找到",
-                color = TextMuted,
-                fontSize = 13.sp
-            )
         }
     }
 }
 
 /**
- * Applies a hardware center-fit Matrix transform to TextureView using post-layout bounds
- * so video frames never stretch or distort during orientation transitions.
+ * Interactive simulated game highlight canvas for prototype preview clips (when no real MP4 file is recorded yet).
  */
+@Composable
+private fun SimulatedHighlightStage(
+    clip: ReplayClip,
+    currentPosMs: Int,
+    totalDurationMs: Int,
+    modifier: Modifier = Modifier
+) {
+    val progress = (currentPosMs.toFloat() / totalDurationMs.toFloat().coerceAtLeast(1f)).coerceIn(0f, 1f)
+
+    Box(
+        modifier = modifier
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF131D31),
+                        Color(0xFF1B2B48),
+                        Color(0xFF111A2B)
+                    )
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            // Subtle tactical radar grid lines
+            val step = w / 8f
+            for (i in 1..7) {
+                drawLine(
+                    color = Color.White.copy(alpha = 0.05f),
+                    start = Offset(i * step, 0f),
+                    end = Offset(i * step, h),
+                    strokeWidth = 1f
+                )
+            }
+
+            // Animated highlight ring following playback progress
+            val phase = (progress * 6.283f).toDouble()
+            val focusX = w * (0.35f + 0.30f * sin(phase).toFloat())
+            val focusY = h * 0.5f
+
+            drawCircle(
+                color = Color(0xFF1677FF).copy(alpha = 0.25f),
+                radius = h * 0.26f,
+                center = Offset(focusX, focusY)
+            )
+            drawCircle(
+                color = Color(0xFF1677FF).copy(alpha = 0.65f),
+                radius = h * 0.16f,
+                center = Offset(focusX, focusY),
+                style = Stroke(width = 3f)
+            )
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = PrimaryBlue.copy(alpha = 0.25f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, PrimaryBlue.copy(alpha = 0.5f))
+            ) {
+                Text(
+                    text = "${clip.gameName} • ${clip.resolution} • ${clip.fps} FPS",
+                    color = PureWhite,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = clip.title,
+                color = PureWhite,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "高保真播放器交互预览 • 拖拽进度条或双击画面快进/快退",
+                color = PureWhite.copy(alpha = 0.65f),
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
 private fun applyCenterFitMatrix(
     textureView: TextureView,
     viewWidth: Int,
@@ -1057,6 +1223,8 @@ private fun shareVideo(context: Context, file: File) {
             putExtra(Intent.EXTRA_STREAM, uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        context.startActivity(Intent.createChooser(shareIntent, "分享游戏高光瞬间"))
-    } catch (_: Exception) {}
+        context.startActivity(Intent.createChooser(shareIntent, "分享精彩游戏瞬间"))
+    } catch (_: Exception) {
+        Toast.makeText(context, "无法分享视频", Toast.LENGTH_SHORT).show()
+    }
 }

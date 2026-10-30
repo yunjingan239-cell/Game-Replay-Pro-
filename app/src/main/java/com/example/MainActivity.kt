@@ -1,10 +1,11 @@
 package com.example
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -12,19 +13,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Movie
@@ -36,34 +31,34 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.local.ReplayClip
+import com.example.ui.components.InteractiveFloatingBallOverlay
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.GameModeScreen
 import com.example.ui.screens.ReplayLibraryScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.VideoPlayerDialog
-import android.view.KeyEvent
-import android.widget.Toast
 import com.example.ui.theme.AppBackground
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.MyApplicationTheme
@@ -71,7 +66,6 @@ import com.example.ui.theme.PrimaryBlue
 import com.example.ui.theme.PrimaryBlueLight
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextTitle
 import com.example.ui.viewmodel.ReplayViewModel
 
 class MainActivity : ComponentActivity() {
@@ -81,8 +75,8 @@ class MainActivity : ComponentActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        // Handle result
+    ) { _ ->
+        // Permission result handled
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -100,7 +94,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Synchronize live service state with Quick Settings Tile whenever user enters or returns to the app
+        viewModel.refreshInstalledGames()
         val isBufferingNow = com.example.service.ReplayRecorderService.syncAndVerifyState(this)
         com.example.service.ReplayTileService.requestTileUpdate(this)
 
@@ -114,9 +108,8 @@ class MainActivity : ComponentActivity() {
         if (currentSettings.volumeKeyShortcutEnabled && keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
             val now = System.currentTimeMillis()
             if (now - lastVolumeDownTimestamp < 650) {
-                // Double tap Volume Down detected!
                 viewModel.triggerSaveReplay()
-                Toast.makeText(this, "请稍等", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "已触发音量键快捷保存", Toast.LENGTH_SHORT).show()
                 lastVolumeDownTimestamp = 0L
                 return true
             }
@@ -155,12 +148,16 @@ enum class NavigationTab(val title: String, val selectedIcon: ImageVector, val u
 
 @Composable
 fun GameReplayApp(viewModel: ReplayViewModel) {
+    val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NavigationTab.HOME) }
     var activePreviewClip by remember { mutableStateOf<ReplayClip?>(null) }
-    val activity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    var isFloatingBallPreviewVisible by remember { mutableStateOf(false) }
+    val activity = context as? android.app.Activity
 
     androidx.activity.compose.BackHandler {
-        if (currentTab != NavigationTab.HOME) {
+        if (activePreviewClip != null) {
+            activePreviewClip = null
+        } else if (currentTab != NavigationTab.HOME) {
             currentTab = NavigationTab.HOME
         } else {
             activity?.moveTaskToBack(true)
@@ -179,13 +176,13 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                 .background(AppBackground),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                // In Game Mode, automatically hide the bottom navigation bar to maximize gaming immersion
-                if (!settings.isGameModeActive && activePreviewClip == null) {
-                    androidx.compose.material3.NavigationBar(
+                // Consistent Bottom Navigation across all 4 primary screens
+                if (activePreviewClip == null) {
+                    NavigationBar(
                         containerColor = PureWhite,
                         contentColor = PrimaryBlue,
                         tonalElevation = 0.dp,
-                        windowInsets = androidx.compose.material3.NavigationBarDefaults.windowInsets,
+                        windowInsets = NavigationBarDefaults.windowInsets,
                         modifier = Modifier
                             .fillMaxWidth()
                             .drawBehind {
@@ -271,7 +268,12 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                                 onNavigateToLibrary = { currentTab = NavigationTab.LIBRARY },
                                 onNavigateToGameMode = { currentTab = NavigationTab.GAMEMODE },
                                 onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
-                                onUpdateSettings = { viewModel.updateSettings(it) }
+                                onUpdateSettings = { viewModel.updateSettings(it) },
+                                onPlayClip = { clip -> activePreviewClip = clip },
+                                onToggleFloatingBallPreview = {
+                                    isFloatingBallPreviewVisible = !isFloatingBallPreviewVisible
+                                },
+                                isFloatingBallPreviewVisible = isFloatingBallPreviewVisible
                             )
                         }
                         NavigationTab.LIBRARY -> {
@@ -289,6 +291,9 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                                 },
                                 onToggleFavorite = { clip ->
                                     viewModel.toggleFavorite(clip)
+                                },
+                                onNavigateToSettings = {
+                                    currentTab = NavigationTab.SETTINGS
                                 }
                             )
                         }
@@ -319,19 +324,51 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                                 },
                                 onClearBufferCache = {
                                     viewModel.clearBufferCache()
-                                }
+                                },
+                                onToggleFloatingBallPreview = {
+                                    isFloatingBallPreviewVisible = !isFloatingBallPreviewVisible
+                                },
+                                isFloatingBallPreviewVisible = isFloatingBallPreviewVisible
                             )
                         }
                     }
                 }
+
+                // App-wide Interactive Floating Ball Overlay Preview
+                InteractiveFloatingBallOverlay(
+                    visible = isFloatingBallPreviewVisible && activePreviewClip == null,
+                    isBuffering = dashboardState.isBuffering,
+                    bufferDurationSeconds = settings.bufferDurationSeconds,
+                    bufferedSeconds = dashboardState.bufferedSeconds,
+                    opacity = settings.floatingButtonOpacity,
+                    sizeDp = settings.floatingButtonSizeDp,
+                    onSaveClick = {
+                        if (dashboardState.isBuffering) {
+                            viewModel.triggerSaveReplay()
+                            Toast.makeText(context, "已触发真实回录保存", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "悬浮球交互模拟：已模拟保存过去 ${settings.bufferDurationSeconds} 秒高光",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
+                    onClosePreview = { isFloatingBallPreviewVisible = false }
+                )
             }
         }
 
-        // In-app Full-Window Video Preview & Fullscreen Cinema Player
+        // Page 5: Full-Window Video Preview & Floating Ball Stage
         activePreviewClip?.let { clip ->
             VideoPlayerDialog(
                 clip = clip,
-                onDismiss = { activePreviewClip = null }
+                onDismiss = { activePreviewClip = null },
+                onToggleFavorite = { favClip ->
+                    if (favClip.id > 0L) {
+                        viewModel.toggleFavorite(favClip)
+                    }
+                }
             )
         }
     }

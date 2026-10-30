@@ -136,13 +136,23 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        try {
-            startForeground(
-                GameReplayApplication.NOTIFICATION_ID_OVERLAY,
-                createOverlayNotification()
-            )
-        } catch (e: Exception) {
-            android.util.Log.w("FloatingOverlayService", "startForeground error: ${e.message}")
+        if (intent?.getBooleanExtra(EXTRA_START_AS_FGS, false) == true) {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    startForeground(
+                        GameReplayApplication.NOTIFICATION_ID_OVERLAY,
+                        createOverlayNotification(),
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    )
+                } else {
+                    startForeground(
+                        GameReplayApplication.NOTIFICATION_ID_OVERLAY,
+                        createOverlayNotification()
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("FloatingOverlayService", "startForeground note: ${e.message}")
+            }
         }
 
         if (Settings.canDrawOverlays(this)) {
@@ -158,7 +168,7 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         val removedClass = rootIntent?.component?.className
-        if (removedClass == ReplayTilePromptActivity::class.java.name) {
+        if (removedClass != null && removedClass != MainActivity::class.java.name) {
             return
         }
         stopSelf()
@@ -280,20 +290,29 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
     }
 
     companion object {
+        private const val EXTRA_START_AS_FGS = "extra_start_as_fgs"
+
         fun start(context: Context) {
             if (Settings.canDrawOverlays(context)) {
                 val intent = Intent(context, FloatingOverlayService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
+                try {
                     context.startService(intent)
+                } catch (_: Exception) {
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            intent.putExtra(EXTRA_START_AS_FGS, true)
+                            context.startForegroundService(intent)
+                        }
+                    } catch (_: Exception) {}
                 }
             }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, FloatingOverlayService::class.java)
-            context.stopService(intent)
+            try {
+                val intent = Intent(context, FloatingOverlayService::class.java)
+                context.stopService(intent)
+            } catch (_: Exception) {}
         }
     }
 }

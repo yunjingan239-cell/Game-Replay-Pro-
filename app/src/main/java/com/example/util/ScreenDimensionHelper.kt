@@ -1,8 +1,9 @@
 package com.example.util
 
 import android.content.Context
-import android.os.Build
+import android.hardware.display.DisplayManager
 import android.util.DisplayMetrics
+import android.view.Display
 import android.view.WindowManager
 import com.example.data.model.ReplaySettings
 import kotlin.math.roundToInt
@@ -16,25 +17,39 @@ object ScreenDimensionHelper {
 
     /**
      * Retrieves the physical screen dimensions (real width and real height) in pixels.
+     * Uses [DisplayManager] so it is 100% safe to call from non-UI contexts such as [android.app.Service]
+     * on Android 11–16+ without triggering WindowManager UI-Context exceptions.
      */
     fun getRealDisplayMetrics(context: Context): Pair<Int, Int> {
-        val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
-            ?: return Pair(1080, 2400)
+        try {
+            val dm = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+            val defaultDisplay = dm?.getDisplay(Display.DEFAULT_DISPLAY)
+            if (defaultDisplay != null) {
+                val realMetrics = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                defaultDisplay.getRealMetrics(realMetrics)
+                if (realMetrics.widthPixels > 0 && realMetrics.heightPixels > 0) {
+                    return Pair(realMetrics.widthPixels, realMetrics.heightPixels)
+                }
+            }
+        } catch (_: Throwable) {}
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val bounds = wm.currentWindowMetrics.bounds
-            val dm = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            wm.defaultDisplay?.getRealMetrics(dm)
-            val w = if (dm.widthPixels > 0) dm.widthPixels else bounds.width()
-            val h = if (dm.heightPixels > 0) dm.heightPixels else bounds.height()
-            Pair(w, h)
-        } else {
-            val dm = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            wm.defaultDisplay?.getRealMetrics(dm)
-            Pair(dm.widthPixels, dm.heightPixels)
-        }
+        try {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+            if (wm != null) {
+                val dm = DisplayMetrics()
+                @Suppress("DEPRECATION")
+                wm.defaultDisplay?.getRealMetrics(dm)
+                if (dm.widthPixels > 0 && dm.heightPixels > 0) {
+                    return Pair(dm.widthPixels, dm.heightPixels)
+                }
+            }
+        } catch (_: Throwable) {}
+
+        val resMetrics = context.resources.displayMetrics
+        val w = if (resMetrics.widthPixels > 0) resMetrics.widthPixels else 1080
+        val h = if (resMetrics.heightPixels > 0) resMetrics.heightPixels else 2400
+        return Pair(w, h)
     }
 
     /**

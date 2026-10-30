@@ -129,9 +129,12 @@ class ReplayRecorderService : Service() {
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+        if (System.currentTimeMillis() - lastStartRequestTimestampMs < 4000L) {
+            return
+        }
         val removedClass = rootIntent?.component?.className
-        // Ignore the transparent permission prompt activity finishing its own ephemeral task
-        if (removedClass == ReplayTilePromptActivity::class.java.name) {
+        // Only stop when the main application task is removed, ignoring permission/trampoline dialogs
+        if (removedClass != null && removedClass != MainActivity::class.java.name) {
             return
         }
         Log.i(tag, "App task removed from recents ($removedClass) — syncing and stopping replay service")
@@ -200,11 +203,29 @@ class ReplayRecorderService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val hasMicPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
             var serviceType = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasMicPermission) {
                 serviceType = serviceType or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             }
-            startForeground(GameReplayApplication.NOTIFICATION_ID_RECORDER, notification, serviceType)
+            try {
+                startForeground(GameReplayApplication.NOTIFICATION_ID_RECORDER, notification, serviceType)
+            } catch (e: Exception) {
+                Log.w(tag, "startForeground with combined type note (${e.message}), falling back to mediaProjection only")
+                try {
+                    startForeground(
+                        GameReplayApplication.NOTIFICATION_ID_RECORDER,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                    )
+                } catch (e2: Exception) {
+                    Log.e(tag, "startForeground fallback failed: ${e2.message}")
+                }
+            }
         } else {
             startForeground(GameReplayApplication.NOTIFICATION_ID_RECORDER, notification)
         }
@@ -217,8 +238,15 @@ class ReplayRecorderService : Service() {
         val settings = repo.settings.value
 
         if (resultCode != 0 && resultData != null) {
-            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
+            try {
+                val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                mediaProjection = projectionManager.getMediaProjection(resultCode, resultData)
+            } catch (e: Exception) {
+                Log.e(tag, "Failed to obtain MediaProjection: ${e.message}", e)
+                FloatingOverlayService.stop(this)
+                stopReplayService()
+                return
+            }
         }
 
         recordingEngine = ScreenRecordingEngine(
@@ -390,6 +418,9 @@ class ReplayRecorderService : Service() {
         @Volatile
         private var isInstanceAlive = false
 
+        @Volatile
+        private var lastStartRequestTimestampMs = 0L
+
         private val _serviceStatus = MutableStateFlow(ServiceStatus())
         val serviceStatus = _serviceStatus.asStateFlow()
 
@@ -399,6 +430,13 @@ class ReplayRecorderService : Service() {
          * to inactive and stops any orphan overlay so the App UI and Quick Settings Tile always match.
          */
         fun syncAndVerifyState(context: Context): Boolean {
+            // Grace window right after user grants MediaProjection consent while service is starting up
+            if (System.currentTimeMillis() - lastStartRequestTimestampMs < 5000L &&
+                (isInstanceAlive || _serviceStatus.value.isRunning)
+            ) {
+                return true
+            }
+
             val isOsServiceRunning = try {
                 val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
                 @Suppress("DEPRECATION")
@@ -427,6 +465,10 @@ class ReplayRecorderService : Service() {
         }
 
         fun start(context: Context, resultCode: Int, resultData: Intent?) {
+            lastStartRequestTimestampMs = System.currentTimeMillis()
+            isInstanceAlive = true
+            _serviceStatus.value = _serviceStatus.value.copy(isRunning = true, isBuffering = true)
+
             val intent = Intent(context, ReplayRecorderService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_RESULT_CODE, resultCode)
@@ -440,6 +482,7 @@ class ReplayRecorderService : Service() {
         }
 
         fun stop(context: Context) {
+            lastStartRequestTimestampMs = 0L
             isInstanceAlive = false
             _serviceStatus.value = ServiceStatus(
                 isRunning = false,
