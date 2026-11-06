@@ -37,11 +37,11 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.data.local.ReplayClip
-import com.example.ui.components.InteractiveFloatingBallOverlay
 import com.example.ui.screens.DashboardScreen
 import com.example.ui.screens.GameModeScreen
 import com.example.ui.screens.ReplayLibraryScreen
@@ -151,7 +150,6 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NavigationTab.HOME) }
     var activePreviewClip by remember { mutableStateOf<ReplayClip?>(null) }
-    var isFloatingBallPreviewVisible by remember { mutableStateOf(false) }
     val activity = context as? android.app.Activity
 
     androidx.activity.compose.BackHandler {
@@ -164,10 +162,10 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
         }
     }
 
-    val dashboardState by viewModel.dashboardState.collectAsState()
-    val settings by viewModel.settings.collectAsState()
-    val clips by viewModel.clips.collectAsState()
-    val totalStorageUsed by viewModel.totalStorageUsed.collectAsState()
+    val dashboardState by viewModel.dashboardState.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val clips by viewModel.clips.collectAsStateWithLifecycle()
+    val totalStorageUsed by viewModel.totalStorageUsed.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -176,53 +174,50 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                 .background(AppBackground),
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             bottomBar = {
-                // Consistent Bottom Navigation across all 4 primary screens
-                if (activePreviewClip == null) {
-                    NavigationBar(
-                        containerColor = PureWhite,
-                        contentColor = PrimaryBlue,
-                        tonalElevation = 0.dp,
-                        windowInsets = NavigationBarDefaults.windowInsets,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .drawBehind {
-                                drawLine(
-                                    color = BorderSubtle,
-                                    start = Offset(0f, 0f),
-                                    end = Offset(size.width, 0f),
-                                    strokeWidth = 1.dp.toPx()
-                                )
-                            }
-                    ) {
-                        NavigationTab.entries.forEach { tab ->
-                            val isSelected = currentTab == tab
-                            NavigationBarItem(
-                                selected = isSelected,
-                                onClick = { currentTab = tab },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
-                                        contentDescription = tab.title,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                },
-                                label = {
-                                    Text(
-                                        text = tab.title,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = PrimaryBlue,
-                                    selectedTextColor = PrimaryBlue,
-                                    indicatorColor = PrimaryBlueLight,
-                                    unselectedIconColor = TextMuted,
-                                    unselectedTextColor = TextMuted
-                                ),
-                                modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                NavigationBar(
+                    containerColor = PureWhite,
+                    contentColor = PrimaryBlue,
+                    tonalElevation = 0.dp,
+                    windowInsets = NavigationBarDefaults.windowInsets,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawBehind {
+                            drawLine(
+                                color = BorderSubtle,
+                                start = Offset(0f, 0f),
+                                end = Offset(size.width, 0f),
+                                strokeWidth = 1.dp.toPx()
                             )
                         }
+                ) {
+                    NavigationTab.entries.forEach { tab ->
+                        val isSelected = currentTab == tab
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { currentTab = tab },
+                            icon = {
+                                Icon(
+                                    imageVector = if (isSelected) tab.selectedIcon else tab.unselectedIcon,
+                                    contentDescription = tab.title,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = PrimaryBlue,
+                                selectedTextColor = PrimaryBlue,
+                                indicatorColor = PrimaryBlueLight,
+                                unselectedIconColor = TextMuted,
+                                unselectedTextColor = TextMuted
+                            ),
+                            modifier = Modifier.testTag("nav_tab_${tab.name.lowercase()}")
+                        )
                     }
                 }
             }
@@ -269,11 +264,7 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                                 onNavigateToGameMode = { currentTab = NavigationTab.GAMEMODE },
                                 onNavigateToSettings = { currentTab = NavigationTab.SETTINGS },
                                 onUpdateSettings = { viewModel.updateSettings(it) },
-                                onPlayClip = { clip -> activePreviewClip = clip },
-                                onToggleFloatingBallPreview = {
-                                    isFloatingBallPreviewVisible = !isFloatingBallPreviewVisible
-                                },
-                                isFloatingBallPreviewVisible = isFloatingBallPreviewVisible
+                                onPlayClip = { clip -> activePreviewClip = clip }
                             )
                         }
                         NavigationTab.LIBRARY -> {
@@ -324,42 +315,14 @@ fun GameReplayApp(viewModel: ReplayViewModel) {
                                 },
                                 onClearBufferCache = {
                                     viewModel.clearBufferCache()
-                                },
-                                onToggleFloatingBallPreview = {
-                                    isFloatingBallPreviewVisible = !isFloatingBallPreviewVisible
-                                },
-                                isFloatingBallPreviewVisible = isFloatingBallPreviewVisible
+                                }
                             )
                         }
                     }
                 }
-
-                // App-wide Interactive Floating Ball Overlay Preview
-                InteractiveFloatingBallOverlay(
-                    visible = isFloatingBallPreviewVisible && activePreviewClip == null,
-                    isBuffering = dashboardState.isBuffering,
-                    bufferDurationSeconds = settings.bufferDurationSeconds,
-                    bufferedSeconds = dashboardState.bufferedSeconds,
-                    opacity = settings.floatingButtonOpacity,
-                    sizeDp = settings.floatingButtonSizeDp,
-                    onSaveClick = {
-                        if (dashboardState.isBuffering) {
-                            viewModel.triggerSaveReplay()
-                            Toast.makeText(context, "已触发真实回录保存", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(
-                                context,
-                                "悬浮球交互模拟：已模拟保存过去 ${settings.bufferDurationSeconds} 秒高光",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    },
-                    onClosePreview = { isFloatingBallPreviewVisible = false }
-                )
             }
         }
 
-        // Page 5: Full-Window Video Preview & Floating Ball Stage
         activePreviewClip?.let { clip ->
             VideoPlayerDialog(
                 clip = clip,

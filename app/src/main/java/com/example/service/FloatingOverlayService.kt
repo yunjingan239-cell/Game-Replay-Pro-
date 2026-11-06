@@ -245,11 +245,15 @@ class FloatingOverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, S
                         app?.repository?.updateSettings(newSettings)
                     },
                     onDragDelta = { dx, dy ->
-                        params.x += dx.toInt()
-                        params.y += dy.toInt()
-                        try {
-                            windowManager?.updateViewLayout(this, params)
-                        } catch (_: Exception) {}
+                        val intDx = dx.toInt()
+                        val intDy = dy.toInt()
+                        if (intDx != 0 || intDy != 0) {
+                            params.x += intDx
+                            params.y += intDy
+                            try {
+                                windowManager?.updateViewLayout(this, params)
+                            } catch (_: Exception) {}
+                        }
                     },
                     onTriggerSave = {
                         ReplayRecorderService.triggerSaveClip(this@FloatingOverlayService)
@@ -327,36 +331,34 @@ fun FloatingReplayOverlay(
     onCloseOverlay: () -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
-    var isHiddenCollapsed by remember { mutableStateOf(settings.isFloatingButtonCollapsed) }
+    var isHiddenCollapsed by remember(settings.isFloatingButtonCollapsed) {
+        mutableStateOf(settings.isFloatingButtonCollapsed)
+    }
 
-    val serviceStatus by ReplayRecorderService.serviceStatus.collectAsState()
-    val isSaving = serviceStatus.isSavingClip
-    val isBuffering = serviceStatus.isBuffering
-    val bufferedSec = serviceStatus.bufferedSeconds
+    val serviceStatusState = ReplayRecorderService.serviceStatus.collectAsState()
+    val isSaving by remember {
+        androidx.compose.runtime.derivedStateOf { serviceStatusState.value.isSavingClip }
+    }
 
-    // Breathing neon pulse animation
-    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.94f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(850, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_scale"
-    )
+    // Only animate pulse when actively saving a clip to avoid 60/120Hz SurfaceFlinger & GPU redraws during gameplay
+    val pulseScale = if (isSaving && !isHiddenCollapsed) {
+        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+        val animatedScale by infiniteTransition.animateFloat(
+            initialValue = 0.94f,
+            targetValue = 1.08f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(850, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "pulse_scale"
+        )
+        animatedScale
+    } else {
+        1f
+    }
 
-    // Smooth animated size and alpha transitions
-    val animatedButtonSizeDp by androidx.compose.animation.core.animateDpAsState(
-        targetValue = settings.floatingButtonSizeDp.dp,
-        animationSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),
-        label = "button_size"
-    )
-    val animatedAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = settings.floatingButtonOpacity.coerceIn(0.2f, 1.0f),
-        animationSpec = tween(300),
-        label = "button_alpha"
-    )
+    val buttonSizeDp = settings.floatingButtonSizeDp.dp
+    val buttonAlpha = settings.floatingButtonOpacity.coerceIn(0.2f, 1.0f)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -390,9 +392,9 @@ fun FloatingReplayOverlay(
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .size(animatedButtonSizeDp)
-                    .alpha(animatedAlpha)
-                    .scale(if (isBuffering || isSaving) pulseScale else 1f)
+                    .size(buttonSizeDp)
+                    .alpha(buttonAlpha)
+                    .scale(pulseScale)
                     .clip(CircleShape)
                     .background(
                         if (isSaving) {
@@ -411,6 +413,8 @@ fun FloatingReplayOverlay(
                             val down = awaitFirstDown(requireUnconsumed = false)
                             var totalDragX = 0f
                             var totalDragY = 0f
+                            var residualX = 0f
+                            var residualY = 0f
                             var isDragStarted = false
                             val touchSlop = viewConfiguration.touchSlop
                             val longPressTimeout = 450L
@@ -443,7 +447,15 @@ fun FloatingReplayOverlay(
 
                                     if (isDragStarted) {
                                         change.consume()
-                                        onDragDelta(dragDeltaX, dragDeltaY)
+                                        residualX += dragDeltaX
+                                        residualY += dragDeltaY
+                                        val moveX = residualX.toInt()
+                                        val moveY = residualY.toInt()
+                                        if (moveX != 0 || moveY != 0) {
+                                            residualX -= moveX
+                                            residualY -= moveY
+                                            onDragDelta(moveX.toFloat(), moveY.toFloat())
+                                        }
                                     }
                                 }
                             }
@@ -455,14 +467,14 @@ fun FloatingReplayOverlay(
                         imageVector = Icons.Default.FiberManualRecord,
                         contentDescription = "保存中",
                         tint = PureWhite,
-                        modifier = Modifier.size((animatedButtonSizeDp.value * 0.52f).dp)
+                        modifier = Modifier.size((buttonSizeDp.value * 0.52f).dp)
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.Bolt,
                         contentDescription = "保存高光瞬间",
                         tint = PrimaryBlue,
-                        modifier = Modifier.size((animatedButtonSizeDp.value * 0.58f).dp)
+                        modifier = Modifier.size((buttonSizeDp.value * 0.58f).dp)
                     )
                 }
             }
@@ -473,6 +485,10 @@ fun FloatingReplayOverlay(
                 enter = fadeIn() + scaleIn(spring()),
                 exit = fadeOut() + scaleOut()
             ) {
+                val hudStatus = serviceStatusState.value
+                val isBuffering = hudStatus.isBuffering
+                val bufferedSec = hudStatus.bufferedSeconds
+
                 Box(
                     modifier = Modifier
                         .padding(top = 8.dp)

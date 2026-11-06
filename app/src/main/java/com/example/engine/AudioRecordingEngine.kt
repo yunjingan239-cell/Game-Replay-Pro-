@@ -63,9 +63,11 @@ class AudioRecordingEngine(
 
             isRecording = true
             audioThread = Thread({
+                try {
+                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                } catch (_: Throwable) {}
                 processAudioCaptureLoop(settings)
             }, "ReplayAudioThread").apply {
-                priority = Thread.NORM_PRIORITY + 1
                 start()
             }
             Log.i(tag, "Audio recording engine active (internal=${settings.internalAudioEnabled}, mic=${settings.micAudioEnabled})")
@@ -80,6 +82,7 @@ class AudioRecordingEngine(
             setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 16384)
+            setInteger(MediaFormat.KEY_PRIORITY, 1)
         }
 
         audioCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC).apply {
@@ -114,7 +117,7 @@ class AudioRecordingEngine(
                                 .setChannelMask(channelConfig)
                                 .build()
                         )
-                        .setBufferSizeInBytes(minBufferSize * 2)
+                        .setBufferSizeInBytes(minBufferSize * 4)
                         .build()
 
                     if (record.state == AudioRecord.STATE_INITIALIZED) {
@@ -141,7 +144,7 @@ class AudioRecordingEngine(
                         sampleRate,
                         channelConfig,
                         audioEncoding,
-                        minBufferSize * 2
+                        minBufferSize * 4
                     )
                     if (record.state == AudioRecord.STATE_INITIALIZED) {
                         createdRecord = record
@@ -229,9 +232,9 @@ class AudioRecordingEngine(
                 }
             }
 
-            // Step 3: Drain encoded AAC data from MediaCodec
+            // Step 3: Drain encoded AAC data from MediaCodec non-blockingly (AudioRecord.read already paces the loop)
             while (isRecording) {
-                val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 2_000)
+                val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 0L)
                 when {
                     outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                         val newFormat = codec.outputFormat

@@ -35,8 +35,8 @@ data class ReplaySettings(
     val autoThermalGuard: Boolean = true,
     val batterySaverVbr: Boolean = false // Default false so constant/high bitrate prevents macroblocking in fast motion
 ) {
-    val chunkDurationSeconds: Int = 10
-    val maxChunksInRing: Int get() = (bufferDurationSeconds / chunkDurationSeconds).coerceAtLeast(3)
+    val chunkDurationSeconds: Int = 5
+    val maxChunksInRing: Int get() = ((bufferDurationSeconds + chunkDurationSeconds - 1) / chunkDurationSeconds).coerceAtLeast(3)
 
     /**
      * Calculates width and height adapting to the physical display's exact aspect ratio.
@@ -186,7 +186,7 @@ data class ReplaySettings(
                 .putString(KEY_PRO_PLAN, settings.proPlanName)
                 .putBoolean(KEY_THERMAL_GUARD, settings.autoThermalGuard)
                 .putBoolean(KEY_BATTERY_VBR_V2, settings.batterySaverVbr)
-                .commit()
+                .apply()
         }
     }
 }

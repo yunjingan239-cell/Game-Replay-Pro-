@@ -81,16 +81,29 @@ class ScreenRecordingEngine(
     // Preserved SPS/PPS/CSD metadata for seamless chunk creation without waiting for format change
     private var cachedVideoOutputFormat: MediaFormat? = null
     private var cachedAudioOutputFormat: MediaFormat? = null
+    private val reusableVideoBufferInfo = MediaCodec.BufferInfo()
 
     // PTS Normalization per chunk to guarantee synchronous zero-based video & audio playback
     private var chunkBaseVideoPtsUs: Long = -1L
     private var chunkBaseAudioPtsUs: Long = -1L
-    private var lastChunkVideoPtsUs: Long = 0L
-    private var lastChunkAudioPtsUs: Long = 0L
+    private var lastChunkVideoPtsUs: Long = -1L
+    private var lastChunkAudioPtsUs: Long = -1L
     private var chunkVideoSampleCount: Int = 0
+    private var chunkAudioSampleCount: Int = 0
+    private var lastVideoSampleWallMs: Long = 0L
+
+    @Volatile
+    private var pendingChunkRotation = false
 
     @Volatile
     private var isAudioRequested = false
+
+    @Volatile
+    private var isScreenInteractive = true
+
+    private val syncFrameBundle = Bundle().apply {
+        putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+    }
 
     private var handlerThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
@@ -100,6 +113,7 @@ class ScreenRecordingEngine(
     private val engineScope = CoroutineScope(Dispatchers.Default)
 
     private var currentSettings: ReplaySettings? = null
+    @Volatile
     private var chunkStartTime = 0L
     private var encoderName = "Hardware HEVC Encoder"
     private var isHwAccelerated = true
@@ -111,6 +125,16 @@ class ScreenRecordingEngine(
     private var displayListener: DisplayManager.DisplayListener? = null
     private var lastReportedLandscape: Boolean? = null
 
+    fun setScreenInteractive(interactive: Boolean) {
+        isScreenInteractive = interactive
+    }
+
+    fun getCurrentChunkElapsedMs(): Long {
+        val start = chunkStartTime
+        if (!isRecording || start <= 0L) return 0L
+        return (System.currentTimeMillis() - start).coerceAtLeast(0L)
+    }
+
     fun startRecording(projection: MediaProjection?, settings: ReplaySettings) {
         if (isRecording) {
             Log.w(tag, "Recording already active")
@@ -120,9 +144,10 @@ class ScreenRecordingEngine(
         this.mediaProjection = projection
         this.currentSettings = settings
         this.isAudioRequested = (settings.internalAudioEnabled || settings.micAudioEnabled)
+        bufferManager.updateTargetDuration(settings.bufferDurationSeconds, settings.maxChunksInRing)
         isRecording = true
 
-        handlerThread = HandlerThread("ReplayEngineThread", Process.THREAD_PRIORITY_DEFAULT).apply {
+        handlerThread = HandlerThread("ReplayEngineThread", Process.THREAD_PRIORITY_BACKGROUND).apply {
             start()
         }
         backgroundHandler = Handler(handlerThread!!.looper)
@@ -158,12 +183,13 @@ class ScreenRecordingEngine(
     }
 
     /**
-     * Dynamically applies updated quality settings (resolution, FPS, bitrate, codec, VBR)
+     * Dynamically applies updated settings (duration, resolution, FPS, bitrate, codec, VBR)
      * while recording is active so changes in SettingsScreen take effect immediately.
      */
     fun updateSettingsLive(newSettings: ReplaySettings) {
         val old = currentSettings
         currentSettings = newSettings
+        bufferManager.updateTargetDuration(newSettings.bufferDurationSeconds, newSettings.maxChunksInRing)
         if (!isRecording) return
 
         val needsEncoderRebuild = old == null ||
@@ -198,17 +224,23 @@ class ScreenRecordingEngine(
             },
             onAudioSampleAvailable = { buffer, bufferInfo ->
                 synchronized(muxerLock) {
-                    if (isMuxerStarted && audioTrackIndex != -1 && currentMuxer != null) {
+                    // Only write audio samples once the chunk's first IDR video keyframe is anchored at t=0
+                    if (isMuxerStarted && audioTrackIndex != -1 && currentMuxer != null && chunkVideoSampleCount > 0) {
                         if (chunkBaseAudioPtsUs == -1L) {
                             chunkBaseAudioPtsUs = bufferInfo.presentationTimeUs
                         }
                         val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBaseAudioPtsUs).coerceAtLeast(0L)
-                        val finalPtsUs = maxOf(lastChunkAudioPtsUs, relativePtsUs)
+                        val finalPtsUs = if (chunkAudioSampleCount == 0 || lastChunkAudioPtsUs < 0L) {
+                            0L
+                        } else {
+                            maxOf(lastChunkAudioPtsUs + 100L, relativePtsUs)
+                        }
                         lastChunkAudioPtsUs = finalPtsUs
                         bufferInfo.presentationTimeUs = finalPtsUs
 
                         try {
                             currentMuxer?.writeSampleData(audioTrackIndex, buffer, bufferInfo)
+                            chunkAudioSampleCount++
                         } catch (e: Exception) {
                             Log.v(tag, "Audio sample write note: ${e.message}")
                         }
@@ -331,7 +363,7 @@ class ScreenRecordingEngine(
                     currentWidth,
                     currentHeight,
                     densityDpi,
-                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR or DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC,
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                     inputSurface,
                     null,
                     backgroundHandler
@@ -495,13 +527,19 @@ class ScreenRecordingEngine(
             setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            // 2-second keyframe interval preserves bit budget for P-frames so fast motion stays crystal clear
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)
-            // Repeat frame every 100ms when screen is static so muxer never starves
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 100_000L)
-            // Realtime priority + full operating rate so hardware encoder runs at peak clock
-            setInteger(MediaFormat.KEY_PRIORITY, 0)
-            setFloat(MediaFormat.KEY_OPERATING_RATE, fps.toFloat())
+            // 1-second keyframe interval ensures every chunk starts on a clean IDR frame and trims accurately
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+            // Repeat frame every 200ms when screen is completely static so muxer never starves while saving 75% VPU power on static scenes
+            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000L)
+            // Non-preemptive priority (1) prevents hardware VPU from starving foreground game GPU/DDR bandwidth or locking peak SoC voltage
+            setInteger(MediaFormat.KEY_PRIORITY, 1)
+
+            // Strictly disable B-frames so hardware encoders emit monotonic I+P frames (PTS == DTS),
+            // eliminating out-of-order presentation timestamp flickering during playback and stitching.
+            setInteger("max-bframes", 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
+            }
 
             // Rate control mode: prefer CBR when user wants max clarity (no VBR bit-starving in teamfights)
             val encoderCaps = capabilities?.encoderCapabilities
@@ -526,8 +564,6 @@ class ScreenRecordingEngine(
                     setInteger(MediaFormat.KEY_VIDEO_QP_I_MAX, 24)
                     setInteger(MediaFormat.KEY_VIDEO_QP_P_MIN, 8)
                     setInteger(MediaFormat.KEY_VIDEO_QP_P_MAX, 26)
-                    setInteger(MediaFormat.KEY_VIDEO_QP_B_MIN, 8)
-                    setInteger(MediaFormat.KEY_VIDEO_QP_B_MAX, 28)
                 }
 
                 // Accurate BT.709 Full-Range color space so text edges and dark shadows are never washed out
@@ -604,11 +640,16 @@ class ScreenRecordingEngine(
                 // 1. Drain and finalize active chunk if it has valid video samples
                 drainAvailableEncoderOutputLocked()
                 val completedFile = currentChunkFile
-                val durationMs = System.currentTimeMillis() - chunkStartTime
-                val hadValidVideoSamples = closeCurrentMuxerSafely()
+                val durationMs = (System.currentTimeMillis() - chunkStartTime).coerceAtLeast(500L)
+                val hadValidVideoSamples = closeCurrentMuxerSafely(durationMs)
 
                 if (hadValidVideoSamples && completedFile != null && completedFile.exists() && completedFile.length() > 0) {
-                    bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
+                    bufferManager.onChunkFinished(
+                        completedFile,
+                        durationMs,
+                        settings.maxChunksInRing,
+                        settings.bufferDurationSeconds
+                    )
                     onChunkSaved(completedFile, durationMs)
                 } else {
                     try {
@@ -633,6 +674,7 @@ class ScreenRecordingEngine(
                 inputSurface = null
 
                 cachedVideoOutputFormat = null
+                pendingChunkRotation = false
 
                 // 3. Reconfigure encoder and resize existing VirtualDisplay
                 setupCodecAndVirtualDisplay(settings)
@@ -679,10 +721,14 @@ class ScreenRecordingEngine(
                 audioTrackIndex = -1
                 chunkBaseVideoPtsUs = -1L
                 chunkBaseAudioPtsUs = -1L
-                lastChunkVideoPtsUs = 0L
-                lastChunkAudioPtsUs = 0L
+                lastChunkVideoPtsUs = -1L
+                lastChunkAudioPtsUs = -1L
                 chunkVideoSampleCount = 0
-                chunkStartTime = System.currentTimeMillis()
+                chunkAudioSampleCount = 0
+                pendingChunkRotation = false
+                val now = System.currentTimeMillis()
+                chunkStartTime = now
+                lastVideoSampleWallMs = now
 
                 tryStartMuxerIfReady()
             } catch (e: Exception) {
@@ -720,9 +766,11 @@ class ScreenRecordingEngine(
         val runnable = object : Runnable {
             override fun run() {
                 if (!isRecording || mediaCodec == null) return
-                drainAvailableEncoderOutputLocked()
+                val waitTimeoutUs = if (isScreenInteractive) 10_000L else 40_000L
+                drainAvailableEncoderOutputLocked(waitTimeoutUs)
                 if (isRecording) {
-                    backgroundHandler?.postDelayed(this, 8L)
+                    val nextDelayMs = if (isScreenInteractive) 4L else 80L
+                    backgroundHandler?.postDelayed(this, nextDelayMs)
                 }
             }
         }
@@ -730,14 +778,15 @@ class ScreenRecordingEngine(
         backgroundHandler?.post(runnable)
     }
 
-    private fun drainAvailableEncoderOutputLocked() {
+    private fun drainAvailableEncoderOutputLocked(firstWaitTimeoutUs: Long = 0L) {
         val encoder = mediaCodec ?: return
-        val bufferInfo = MediaCodec.BufferInfo()
+        val bufferInfo = reusableVideoBufferInfo
 
         try {
             var drainedCount = 0
             while (isRecording && drainedCount < 24) {
-                val outputBufferIndex = encoder.dequeueOutputBuffer(bufferInfo, 0L)
+                val timeoutUs = if (drainedCount == 0) firstWaitTimeoutUs else 0L
+                val outputBufferIndex = encoder.dequeueOutputBuffer(bufferInfo, timeoutUs)
                 when {
                     outputBufferIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                         if (!isMuxerStarted && cachedVideoOutputFormat != null) {
@@ -753,26 +802,55 @@ class ScreenRecordingEngine(
                         val outputBuffer = encoder.getOutputBuffer(outputBufferIndex)
                         val isCodecConfig = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0
                         if (!isCodecConfig && outputBuffer != null && bufferInfo.size > 0) {
+                            val isKeyFrame = (bufferInfo.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0
+
                             if (!isMuxerStarted && cachedVideoOutputFormat != null) {
                                 tryStartMuxerIfReady()
                             }
+
+                            // Keyframe-Aligned Chunk Rotation:
+                            // When the chunk timer requests rotation, we keep writing trailing P-frames into
+                            // the current chunk's GOP and rotate to a brand-new chunk at the exact moment
+                            // the next genuine IDR keyframe arrives from MediaCodec.
+                            if (pendingChunkRotation && isKeyFrame && chunkVideoSampleCount > 0) {
+                                val activeSettings = currentSettings
+                                if (activeSettings != null) {
+                                    rotateMuxerOnKeyFrameBoundaryLocked(activeSettings)
+                                } else {
+                                    pendingChunkRotation = false
+                                }
+                            }
+
                             synchronized(muxerLock) {
                                 if (isMuxerStarted && videoTrackIndex != -1 && currentMuxer != null) {
-                                    if (chunkBaseVideoPtsUs == -1L) {
-                                        chunkBaseVideoPtsUs = bufferInfo.presentationTimeUs
-                                    }
-                                    val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBaseVideoPtsUs).coerceAtLeast(0L)
-                                    val finalPtsUs = if (chunkVideoSampleCount == 0) 0L else maxOf(lastChunkVideoPtsUs + 1000L, relativePtsUs)
-                                    lastChunkVideoPtsUs = finalPtsUs
-                                    bufferInfo.presentationTimeUs = finalPtsUs
+                                    if (chunkVideoSampleCount == 0 && !isKeyFrame) {
+                                        // Never inject stale cached keyframes or start a chunk on a P-frame;
+                                        // request an immediate IDR frame and wait for the real keyframe.
+                                        requestInstantSyncFrame()
+                                    } else {
+                                        if (chunkBaseVideoPtsUs == -1L) {
+                                            chunkBaseVideoPtsUs = bufferInfo.presentationTimeUs
+                                        }
+                                        val relativePtsUs = (bufferInfo.presentationTimeUs - chunkBaseVideoPtsUs).coerceAtLeast(0L)
+                                        val finalPtsUs = when {
+                                            chunkVideoSampleCount == 0 || lastChunkVideoPtsUs < 0L -> 0L
+                                            relativePtsUs == lastChunkVideoPtsUs -> lastChunkVideoPtsUs + 100L
+                                            else -> relativePtsUs
+                                        }
+                                        if (finalPtsUs > lastChunkVideoPtsUs) {
+                                            lastChunkVideoPtsUs = finalPtsUs
+                                        }
+                                        bufferInfo.presentationTimeUs = finalPtsUs
 
-                                    outputBuffer.position(bufferInfo.offset)
-                                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
-                                    try {
-                                        currentMuxer?.writeSampleData(videoTrackIndex, outputBuffer, bufferInfo)
-                                        chunkVideoSampleCount++
-                                    } catch (e: Exception) {
-                                        Log.v(tag, "Video write sample note: ${e.message}")
+                                        outputBuffer.position(bufferInfo.offset)
+                                        outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
+                                        try {
+                                            currentMuxer?.writeSampleData(videoTrackIndex, outputBuffer, bufferInfo)
+                                            chunkVideoSampleCount++
+                                            lastVideoSampleWallMs = System.currentTimeMillis()
+                                        } catch (e: Exception) {
+                                            Log.v(tag, "Video write sample note: ${e.message}")
+                                        }
                                     }
                                 }
                             }
@@ -788,7 +866,38 @@ class ScreenRecordingEngine(
         }
     }
 
-    private fun closeCurrentMuxerSafely(): Boolean {
+    private fun rotateMuxerOnKeyFrameBoundaryLocked(settings: ReplaySettings) {
+        try {
+            val completedFile = currentChunkFile
+            val durationMs = (System.currentTimeMillis() - chunkStartTime).coerceAtLeast(500L)
+            val hadValidVideo = closeCurrentMuxerSafely(durationMs)
+
+            if (completedFile != null) {
+                if (hadValidVideo && completedFile.exists() && completedFile.length() > 0) {
+                    bufferManager.onChunkFinished(
+                        completedFile,
+                        durationMs,
+                        settings.maxChunksInRing,
+                        settings.bufferDurationSeconds
+                    )
+                    onChunkSaved(completedFile, durationMs)
+                } else {
+                    try {
+                        completedFile.delete()
+                    } catch (_: Exception) {}
+                }
+            }
+
+            if (isRecording) {
+                prepareNewChunkMuxer()
+            }
+        } catch (e: Exception) {
+            Log.e(tag, "Error rotating video chunk on keyframe boundary", e)
+            pendingChunkRotation = false
+        }
+    }
+
+    private fun closeCurrentMuxerSafely(@Suppress("UNUSED_PARAMETER") expectedDurationMs: Long = 0L): Boolean {
         synchronized(muxerLock) {
             val hadValidVideo = isMuxerStarted && chunkVideoSampleCount > 0
             try {
@@ -806,6 +915,9 @@ class ScreenRecordingEngine(
             videoTrackIndex = -1
             audioTrackIndex = -1
             chunkVideoSampleCount = 0
+            chunkAudioSampleCount = 0
+            lastChunkVideoPtsUs = -1L
+            lastChunkAudioPtsUs = -1L
             return hadValidVideo
         }
     }
@@ -826,70 +938,78 @@ class ScreenRecordingEngine(
                     fps = settings.fps
                 )
                 if (seedChunk.exists() && seedChunk.length() > 0) {
-                    bufferManager.onChunkFinished(seedChunk, 5_000L, settings.maxChunksInRing)
+                    bufferManager.onChunkFinished(
+                        seedChunk,
+                        5_000L,
+                        settings.maxChunksInRing,
+                        settings.bufferDurationSeconds
+                    )
                     onChunkSaved(seedChunk, 5_000L)
                 }
             }
 
             while (isActive && isRecording) {
-                val activeSettings = currentSettings ?: initialSettings
-                val elapsed = System.currentTimeMillis() - chunkStartTime
-                if (elapsed >= (activeSettings.chunkDurationSeconds * 1000L)) {
-                    requestInstantSyncFrame()
-                    rotateChunk(activeSettings)
+                if (!isScreenInteractive) {
+                    delay(1000L)
+                    continue
                 }
-                delay(if (activeSettings.batterySaverVbr) 400L else 200L)
+                val activeSettings = currentSettings ?: initialSettings
+                val chunkTargetMs = activeSettings.chunkDurationSeconds * 1000L
+                val elapsed = System.currentTimeMillis() - chunkStartTime
+                if (elapsed >= chunkTargetMs) {
+                    if (mediaProjection == null) {
+                        rotateSyntheticChunk(activeSettings)
+                    } else if (!pendingChunkRotation) {
+                        pendingChunkRotation = true
+                        requestInstantSyncFrame()
+                    }
+                    delay(250L)
+                } else {
+                    val remainingMs = (chunkTargetMs - elapsed).coerceIn(150L, 1000L)
+                    delay(remainingMs)
+                }
             }
         }
     }
 
     private fun requestInstantSyncFrame() {
         try {
-            val params = Bundle().apply {
-                putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
-            }
-            mediaCodec?.setParameters(params)
+            mediaCodec?.setParameters(syncFrameBundle)
         } catch (_: Exception) {}
     }
 
-    private fun rotateChunk(settings: ReplaySettings) {
+    private fun rotateSyntheticChunk(settings: ReplaySettings) {
         backgroundHandler?.post {
             try {
-                drainAvailableEncoderOutputLocked()
                 val completedFile = currentChunkFile
-                val durationMs = System.currentTimeMillis() - chunkStartTime
-                val hadValidVideo = closeCurrentMuxerSafely()
+                val durationMs = (System.currentTimeMillis() - chunkStartTime).coerceAtLeast(1000L)
+                closeCurrentMuxerSafely(durationMs)
 
                 if (completedFile != null) {
-                    if (hadValidVideo && completedFile.exists() && completedFile.length() > 0) {
-                        bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
-                        onChunkSaved(completedFile, durationMs)
-                    } else if (mediaProjection == null) {
-                        FallbackVideoGenerator.generateVideo(
-                            outputFile = completedFile,
-                            durationSeconds = 5,
-                            gameTitle = settings.currentGameTitle,
-                            width = currentWidth,
-                            height = currentHeight,
-                            fps = settings.fps
+                    FallbackVideoGenerator.generateVideo(
+                        outputFile = completedFile,
+                        durationSeconds = 5,
+                        gameTitle = settings.currentGameTitle,
+                        width = currentWidth,
+                        height = currentHeight,
+                        fps = settings.fps
+                    )
+                    if (completedFile.exists() && completedFile.length() > 0) {
+                        bufferManager.onChunkFinished(
+                            completedFile,
+                            durationMs,
+                            settings.maxChunksInRing,
+                            settings.bufferDurationSeconds
                         )
-                        if (completedFile.exists() && completedFile.length() > 0) {
-                            bufferManager.onChunkFinished(completedFile, durationMs, settings.maxChunksInRing)
-                            onChunkSaved(completedFile, durationMs)
-                        }
-                    } else {
-                        try {
-                            completedFile.delete()
-                        } catch (_: Exception) {}
+                        onChunkSaved(completedFile, durationMs)
                     }
                 }
 
                 if (isRecording) {
                     prepareNewChunkMuxer()
-                    requestInstantSyncFrame()
                 }
             } catch (e: Exception) {
-                Log.e(tag, "Error rotating video chunk", e)
+                Log.e(tag, "Error rotating synthetic video chunk", e)
             }
         }
     }
@@ -906,32 +1026,43 @@ class ScreenRecordingEngine(
                 requestInstantSyncFrame()
                 drainAvailableEncoderOutputLocked()
 
-                val durationMs = System.currentTimeMillis() - chunkStartTime
+                val durationMs = (System.currentTimeMillis() - chunkStartTime).coerceAtLeast(0L)
                 val hasBufferedChunks = bufferManager.getChunkCount() > 0
 
-                if (hasBufferedChunks && (durationMs < 450L || chunkVideoSampleCount < 2)) {
+                if (hasBufferedChunks && (durationMs < 350L || chunkVideoSampleCount == 0)) {
                     return@post
                 }
 
+                val safeDurationMs = durationMs.coerceAtLeast(500L)
                 val completedFile = currentChunkFile
-                val hadValidVideo = closeCurrentMuxerSafely()
+                val hadValidVideo = closeCurrentMuxerSafely(safeDurationMs)
 
                 if (completedFile != null) {
                     if (hadValidVideo && completedFile.exists() && completedFile.length() > 0) {
-                        bufferManager.onChunkFinished(completedFile, durationMs.coerceAtLeast(1000L), settings.maxChunksInRing)
-                        onChunkSaved(completedFile, durationMs.coerceAtLeast(1000L))
+                        bufferManager.onChunkFinished(
+                            completedFile,
+                            safeDurationMs,
+                            settings.maxChunksInRing,
+                            settings.bufferDurationSeconds
+                        )
+                        onChunkSaved(completedFile, safeDurationMs)
                     } else if (mediaProjection == null && !hasBufferedChunks) {
                         FallbackVideoGenerator.generateVideo(
                             outputFile = completedFile,
-                            durationSeconds = 4,
+                            durationSeconds = 5,
                             gameTitle = settings.currentGameTitle,
                             width = currentWidth,
                             height = currentHeight,
                             fps = settings.fps
                         )
                         if (completedFile.exists() && completedFile.length() > 0) {
-                            bufferManager.onChunkFinished(completedFile, 4000L, settings.maxChunksInRing)
-                            onChunkSaved(completedFile, 4000L)
+                            bufferManager.onChunkFinished(
+                                completedFile,
+                                5000L,
+                                settings.maxChunksInRing,
+                                settings.bufferDurationSeconds
+                            )
+                            onChunkSaved(completedFile, 5000L)
                         }
                     } else {
                         try {
@@ -954,6 +1085,7 @@ class ScreenRecordingEngine(
 
     fun stopRecording() {
         isRecording = false
+        pendingChunkRotation = false
         chunkRotationJob?.cancel()
         chunkRotationJob = null
 
@@ -972,7 +1104,7 @@ class ScreenRecordingEngine(
             drainRunnable?.let { backgroundHandler?.removeCallbacks(it) }
             drainRunnable = null
 
-            closeCurrentMuxerSafely()
+            closeCurrentMuxerSafely(0L)
 
             try {
                 mediaCodec?.stop()

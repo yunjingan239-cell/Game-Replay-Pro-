@@ -33,6 +33,7 @@ class ReplayRepository(
     fun updateSettings(newSettings: ReplaySettings) {
         _settings.value = newSettings
         ReplaySettings.save(context, newSettings)
+        bufferManager.updateTargetDuration(newSettings.bufferDurationSeconds, newSettings.maxChunksInRing)
     }
 
     suspend fun saveCurrentBufferAsReplay(customTitle: String? = null): ReplayClip? = withContext(Dispatchers.IO) {
@@ -43,7 +44,11 @@ class ReplayRepository(
 
             val chunks = bufferManager.getBufferedChunks()
             val outputFile: File? = if (chunks.isNotEmpty()) {
-                val stitched = replayMuxer.stitchChunks(chunks, currentSetting.currentGameTitle)
+                val stitched = replayMuxer.stitchChunks(
+                    chunks = chunks,
+                    gameTitle = currentSetting.currentGameTitle,
+                    targetDurationSeconds = currentSetting.bufferDurationSeconds
+                )
                 stitched ?: generateFallbackReplayFile(currentSetting, datePart, timePart)
             } else {
                 generateFallbackReplayFile(currentSetting, datePart, timePart)
@@ -65,7 +70,7 @@ class ReplayRepository(
             val clip = ReplayClip(
                 title = title,
                 filePath = outputFile.absolutePath,
-                durationSeconds = if (durationSec > 0) durationSec else bufferManager.getBufferedDurationSeconds().coerceAtLeast(10),
+                durationSeconds = if (durationSec > 0) durationSec else bufferManager.getBufferedDurationSeconds().coerceAtLeast(currentSetting.bufferDurationSeconds),
                 fileSizeBytes = outputFile.length(),
                 resolution = if (resString.isNotEmpty()) resString else currentSetting.resolutionLabel,
                 fps = currentSetting.fps,
@@ -74,7 +79,7 @@ class ReplayRepository(
             )
 
             val id = replayDao.insertClip(clip)
-            Log.d(tag, "Saved replay clip #$id to database: ${clip.title}")
+            Log.d(tag, "Saved replay clip #$id to database: ${clip.title} (${clip.durationSeconds}s)")
             return@withContext clip.copy(id = id)
         } catch (e: Exception) {
             Log.e(tag, "Failed to save buffer as replay", e)
@@ -87,7 +92,7 @@ class ReplayRepository(
             val targetFile = File(replayMuxer.outputDirectory, "${datePart}_${timePart}.mp4")
             val success = com.example.engine.FallbackVideoGenerator.generateVideo(
                 outputFile = targetFile,
-                durationSeconds = 10,
+                durationSeconds = setting.bufferDurationSeconds.coerceIn(5, 60),
                 gameTitle = setting.currentGameTitle,
                 width = 1280,
                 height = 720,
@@ -108,7 +113,7 @@ class ReplayRepository(
             val width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH) ?: ""
             val height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT) ?: ""
             retriever.release()
-            val durationSec = (durationMs / 1000).toInt()
+            val durationSec = ((durationMs + 500L) / 1000L).toInt()
             val sanitizedDurationSec = if (durationSec in 1..3600) durationSec else 0
             val res = if (width.isNotEmpty() && height.isNotEmpty()) "${width}x${height}" else ""
             Pair(sanitizedDurationSec, res)

@@ -2,52 +2,46 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ============================================================================
-// GAME REPLAY PRO — Unified Minimalist Design System Color Tokens
-// 70% Minimal Professional Utility + 20% Modern Native OS + 10% Light Gaming Tech
-// ============================================================================
-
-// Core Surfaces & Backgrounds
+// Clean Light & Blue Theme Palette
 val PureWhite = Color(0xFFFFFFFF)
-val AppBackground = Color(0xFFF5F7FA)           // 页面背景: #F5F7FA
-val AppBackgroundGradientTop = Color(0xFFF0F5FF) // 顶部极轻量浅蓝过渡
-val CardBackground = Color(0xFFFFFFFF)          // 卡片背景: #FFFFFF
+val AppBackground = Color(0xFFF5F7FA)
+val AppBackgroundGradientTop = Color(0xFFEEF4FF)
+val CardBackground = Color(0xFFFFFFFF)
 val CardElevated = Color(0xFFFFFFFF)
-val SubtleSurface = Color(0xFFF7F9FC)           // 卡片内次级容器背景
+val SubtleSurface = Color(0xFFF7F9FC)
 
 // Brand Primary Blue
-val PrimaryBlue = Color(0xFF1677FF)             // 品牌主蓝: #1677FF
-val PrimaryBlueDark = Color(0xFF0958D9)
-val PrimaryBlueLight = Color(0xFFEAF3FF)        // 浅蓝强调背景: #EAF3FF
-val PrimaryBlueHover = Color(0xFF4096FF)
+val PrimaryBlue = Color(0xFF2B6FF7)
+val PrimaryBlueDark = Color(0xFF1A56DB)
+val PrimaryBlueLight = Color(0xFFEBF2FF)
+val PrimaryBlueHover = Color(0xFF4785FF)
 
-// Typography Hierarchy
-val TextTitle = Color(0xFF202733)               // 主文字: #202733
-val TextBody = Color(0xFF4A5568)                // 正文深灰
-val TextMuted = Color(0xFF8993A1)               // 次级文字: #8993A1
-val TextLight = Color(0xFFC4CAD4)               // 禁用/占位文字
+// Typography Colors
+val TextTitle = Color(0xFF1A2130)
+val TextBody = Color(0xFF4A5568)
+val TextMuted = Color(0xFF8792A2)
+val TextLight = Color(0xFFA0AEC0)
 
-// Dividers & Borders
-val BorderSubtle = Color(0xFFE8EDF3)            // 分割线/细边框: #E8EDF3
-val BorderMedium = Color(0xFFD8E0EA)
-val ShadowAmbient = Color(0x0A000000)
+// Borders & Dividers
+val BorderSubtle = Color(0xFFE8EEF5)
+val BorderMedium = Color(0xFFD5E0EE)
+val ShadowAmbient = Color(0x0D1A2130)
 
-// Semantic Status Colors
-val SoftGreen = Color(0xFF36B56A)               // 成功/运行状态: #36B56A
-val SoftGreenBg = Color(0xFFEDF9F2)
-val SoftGreenBorder = Color(0xFFB7EBCD)
+// Accent Status Colors (for the 2x2 Quick Feature Cards & Status Badges)
+val SoftGreen = Color(0xFF22C55E)
+val SoftGreenBg = Color(0xFFECFDF5)
+val SoftGreenBorder = Color(0xFFBBF7D0)
 
-val SoftOrange = Color(0xFFF5A623)              // 警告/提示状态: #F5A623
-val SoftOrangeBg = Color(0xFFFFF8EC)
+val SoftPurple = Color(0xFF7C4DFF)
+val SoftPurpleBg = Color(0xFFF3EEFF)
 
-val SoftRed = Color(0xFFE55353)                 // 错误/危险操作: #E55353
-val SoftRedBg = Color(0xFFFDF0F0)
+val SoftOrange = Color(0xFFF59E0B)
+val SoftOrangeBg = Color(0xFFFFF5EB)
 
-// Unified Secondary Accents (mapped to calm brand blue/neutral to avoid multi-color clutter)
-val SoftPurple = PrimaryBlue
-val SoftPurpleBg = PrimaryBlueLight
+val SoftRed = Color(0xFFEF4444)
+val SoftRedBg = Color(0xFFFEF2F2)
 
-// Legacy alias mappings for compatibility
+// Legacy aliases
 val ElectricCyan = PrimaryBlue
 val CyberBlack = TextTitle
 val CyberSurfaceDark = AppBackground
@@ -55,7 +49,7 @@ val CyberSurfaceCard = CardBackground
 val CyberSurfaceElevated = CardElevated
 val CyberBorder = BorderSubtle
 val CyberBorderGlow = BorderMedium
-val CyberPurple = PrimaryBlue
+val CyberPurple = SoftPurple
 val NeonGreen = SoftGreen
 val RadiantCrimson = SoftRed
 val TextPrimary = TextTitle

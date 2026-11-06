@@ -27,7 +27,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,31 +42,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RadioButtonChecked
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,9 +83,9 @@ import com.example.data.model.ReplaySettings
 import com.example.engine.InstalledGame
 import com.example.service.ReplayTileService
 import com.example.ui.components.CyberCard
+import com.example.ui.components.PulsingRadarDot
 import com.example.ui.components.QuickFeatureCard
 import com.example.ui.components.StatChip
-import com.example.ui.components.StatusBadge
 import com.example.ui.theme.AppBackground
 import com.example.ui.theme.BorderSubtle
 import com.example.ui.theme.PrimaryBlue
@@ -104,12 +95,12 @@ import com.example.ui.theme.SoftGreen
 import com.example.ui.theme.SoftGreenBg
 import com.example.ui.theme.SoftOrange
 import com.example.ui.theme.SoftOrangeBg
+import com.example.ui.theme.SoftPurple
+import com.example.ui.theme.SoftPurpleBg
 import com.example.ui.theme.SubtleSurface
-import com.example.ui.theme.TextBody
 import com.example.ui.theme.TextMuted
 import com.example.ui.theme.TextTitle
 import com.example.ui.viewmodel.DashboardUiState
-import kotlinx.coroutines.delay
 
 @Composable
 fun DashboardScreen(
@@ -127,14 +118,11 @@ fun DashboardScreen(
     onNavigateToGameMode: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
     onUpdateSettings: (ReplaySettings) -> Unit = {},
-    onPlayClip: (ReplayClip) -> Unit = {},
-    onToggleFloatingBallPreview: () -> Unit = {},
-    isFloatingBallPreviewVisible: Boolean = false
+    onPlayClip: (ReplayClip) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showGamePicker by remember { mutableStateOf(false) }
     var gameSearchQuery by remember { mutableStateOf("") }
-    var saveFeedbackMessage by remember { mutableStateOf<String?>(null) }
 
     val installedGameTitles = remember(state.detectedGames) {
         state.detectedGames.map { it.title }.distinct()
@@ -143,13 +131,6 @@ fun DashboardScreen(
     val filteredGames = remember(installedGameTitles, gameSearchQuery) {
         if (gameSearchQuery.isBlank()) installedGameTitles
         else installedGameTitles.filter { it.contains(gameSearchQuery, ignoreCase = true) }
-    }
-
-    LaunchedEffect(saveFeedbackMessage) {
-        if (saveFeedbackMessage != null) {
-            delay(2800)
-            saveFeedbackMessage = null
-        }
     }
 
     val projectionLauncher = rememberLauncherForActivityResult(
@@ -186,134 +167,78 @@ fun DashboardScreen(
             .padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // 1. Compact Brand Header (Reduced vertical height to prioritize core content)
+        // 1. Brand Header
         item {
             Spacer(modifier = Modifier.height(8.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Image(
-                        painter = painterResource(id = R.drawable.img_replay_app_icon),
-                        contentDescription = "GAME REPLAY PRO",
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            text = "GAME REPLAY PRO",
-                            color = TextTitle,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 0.4.sp
-                        )
-                        Text(
-                            text = "智能游戏回录助手",
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                // Floating Ball Interactive Preview Toggle Pill
-                Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (isFloatingBallPreviewVisible) PrimaryBlue else PrimaryBlueLight,
-                    border = BorderStroke(1.dp, if (isFloatingBallPreviewVisible) PrimaryBlue else BorderSubtle),
+                Image(
+                    painter = painterResource(id = R.drawable.img_replay_app_icon),
+                    contentDescription = "GAME REPLAY PRO",
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .clickable { onToggleFloatingBallPreview() }
-                        .testTag("toggle_floating_ball_preview_btn")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.RadioButtonChecked,
-                            contentDescription = "悬浮球预览",
-                            tint = if (isFloatingBallPreviewVisible) PureWhite else PrimaryBlue,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = if (isFloatingBallPreviewVisible) "收起悬浮球" else "悬浮球预览",
-                            color = if (isFloatingBallPreviewVisible) PureWhite else PrimaryBlue,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(10.dp)),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "GAME REPLAY PRO",
+                        color = TextTitle,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.5.sp
+                    )
+                    Text(
+                        text = "智能游戏回录助手",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }
 
-        // 2. Game Search / Quick Selection Bar (48dp height)
+        // 2. Search / Quick Game Selection Pill Bar
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(RoundedCornerShape(24.dp))
                         .clickable { showGamePicker = !showGamePicker }
                         .testTag("home_game_search_bar"),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(24.dp),
                     color = PureWhite,
                     border = BorderStroke(1.dp, if (showGamePicker) PrimaryBlue else BorderSubtle)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "搜索游戏",
+                            tint = if (showGamePicker) PrimaryBlue else TextMuted,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "搜索游戏或快捷拉起对局（当前：${settings.currentGameTitle}）",
+                            color = TextMuted,
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "搜索或切换关联游戏",
-                                tint = if (showGamePicker) PrimaryBlue else TextMuted,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "当前关联：${settings.currentGameTitle}",
-                                color = TextTitle,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (showGamePicker) "收起" else "切换游戏",
-                                color = PrimaryBlue,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Spacer(modifier = Modifier.width(2.dp))
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = "展开游戏选择",
-                                tint = PrimaryBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        )
                     }
                 }
 
-                // Expandable Inline Game Search & Selection Panel
                 AnimatedVisibility(
                     visible = showGamePicker,
                     enter = fadeIn() + expandVertically(),
@@ -328,7 +253,6 @@ fun DashboardScreen(
                         border = BorderStroke(1.dp, BorderSubtle)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
-                            // Search input inside picker
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -352,7 +276,7 @@ fun DashboardScreen(
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (gameSearchQuery.isEmpty()) {
-                                            Text("输入游戏名称搜索或直接关联...", color = TextMuted, fontSize = 12.sp)
+                                            Text("输入本机游戏名称快速筛选...", color = TextMuted, fontSize = 12.sp)
                                         }
                                         BasicTextField(
                                             value = gameSearchQuery,
@@ -396,7 +320,6 @@ fun DashboardScreen(
                                                 .clickable {
                                                     onSelectGame(gameTitle)
                                                     showGamePicker = false
-                                                    saveFeedbackMessage = "已将当前关联游戏切换为：$gameTitle"
                                                 }
                                         ) {
                                             Row(
@@ -429,14 +352,70 @@ fun DashboardScreen(
             }
         }
 
-        // 3. Primary Hero Card: Replay Status & Main Action (4-Level Visual Hierarchy)
+        // 3. 2x2 Quick Feature Entry Grid (Original position above Replay Card with colored icon boxes)
+        item {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    QuickFeatureCard(
+                        title = "游戏模式",
+                        description = "沉浸对局免打扰",
+                        icon = Icons.Default.SportsEsports,
+                        iconBgColor = PrimaryBlueLight,
+                        iconTint = PrimaryBlue,
+                        isHighlighted = settings.isGameModeActive,
+                        onClick = onNavigateToGameMode,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickFeatureCard(
+                        title = "回录设置",
+                        description = "画质与缓存时长",
+                        icon = Icons.Default.Videocam,
+                        iconBgColor = SoftPurpleBg,
+                        iconTint = SoftPurple,
+                        onClick = onNavigateToSettings,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    QuickFeatureCard(
+                        title = "视频库",
+                        description = "精彩高光回放",
+                        icon = Icons.Default.Folder,
+                        iconBgColor = SoftOrangeBg,
+                        iconTint = SoftOrange,
+                        onClick = onNavigateToLibrary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuickFeatureCard(
+                        title = "设置",
+                        description = "悬浮球与存储管理",
+                        icon = Icons.Default.Settings,
+                        iconBgColor = SoftGreenBg,
+                        iconTint = SoftGreen,
+                        onClick = onNavigateToSettings,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+
+        // 4. Main Replay Status Card ("游戏回录")
         item {
             CyberCard(
-                borderColor = if (state.isBuffering) PrimaryBlue.copy(alpha = 0.35f) else BorderSubtle,
+                borderColor = Color(0xFFBFD7FF),
                 glowEffect = state.isBuffering
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Level 1: Current Replay Status & Main Switch (No duplicate dots)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -444,28 +423,34 @@ fun DashboardScreen(
                     ) {
                         Column {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(9.dp)
+                                        .clip(CircleShape)
+                                        .background(if (state.isBuffering) SoftGreen else TextMuted.copy(alpha = 0.45f))
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = "游戏回录",
                                     color = TextTitle,
-                                    fontSize = 20.sp,
+                                    fontSize = 19.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                StatusBadge(
-                                    text = if (state.isBuffering) "正在缓存" else "未开启",
-                                    isActive = state.isBuffering
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PulsingRadarDot(
+                                    isActive = state.isBuffering,
+                                    activeColor = if (state.isBuffering) SoftGreen else TextMuted
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (state.isBuffering) "正在运行" else "未开启",
+                                    color = if (state.isBuffering) SoftGreen else TextMuted,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (state.isBuffering) {
-                                    "后台内存循环覆写中，不占用永久存储空间"
-                                } else {
-                                    "开启后自动在后台循环记住最近 ${settings.bufferDurationSeconds} 秒游戏画面"
-                                },
-                                color = TextMuted,
-                                fontSize = 12.sp
-                            )
                         }
 
                         Switch(
@@ -481,7 +466,7 @@ fun DashboardScreen(
                                 checkedThumbColor = PureWhite,
                                 checkedTrackColor = PrimaryBlue,
                                 uncheckedThumbColor = PureWhite,
-                                uncheckedTrackColor = Color(0xFFD8E0EA)
+                                uncheckedTrackColor = Color(0xFFD5E0EE)
                             ),
                             modifier = Modifier.testTag("main_replay_switch")
                         )
@@ -489,88 +474,46 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Level 2: Buffer Duration & Current Linked Game (Clear two-column summary)
+                    // Inner Buffer & Status Summary Box
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(14.dp),
-                        color = SubtleSurface,
-                        border = BorderStroke(1.dp, BorderSubtle)
+                        color = SubtleSurface
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Left: Buffer Duration Status
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = if (state.isBuffering) "实时循环缓存" else "设定缓存时长",
-                                        color = TextMuted,
-                                        fontSize = 12.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Row(verticalAlignment = Alignment.Bottom) {
-                                        Text(
-                                            text = if (state.isBuffering) "${state.bufferedSeconds}" else "${settings.bufferDurationSeconds}",
-                                            color = if (state.isBuffering) PrimaryBlue else TextTitle,
-                                            fontSize = 22.sp,
-                                            fontWeight = FontWeight.ExtraBold
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = if (state.isBuffering) "/ ${settings.bufferDurationSeconds} 秒" else "秒",
-                                            color = TextMuted,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(bottom = 3.dp)
-                                        )
-                                    }
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .width(1.dp)
-                                        .height(32.dp)
-                                        .background(BorderSubtle)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "已缓存:",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
                                 )
-
-                                // Right: Current Linked Game
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clickable { showGamePicker = !showGamePicker }
-                                        .padding(start = 16.dp),
-                                    horizontalAlignment = Alignment.End
-                                ) {
-                                    Text(
-                                        text = "当前关联游戏",
-                                        color = TextMuted,
-                                        fontSize = 12.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = settings.currentGameTitle,
-                                        color = TextTitle,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "${if (state.isBuffering) state.bufferedSeconds else 0}秒",
+                                    color = PrimaryBlue,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold
+                                )
                             }
 
-                            if (state.isBuffering) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                val progress = (state.bufferedSeconds.toFloat() / settings.bufferDurationSeconds.toFloat().coerceAtLeast(1f))
-                                    .coerceIn(0.05f, 1f)
-                                LinearProgressIndicator(
-                                    progress = { progress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(4.dp)
-                                        .clip(RoundedCornerShape(2.dp)),
-                                    color = PrimaryBlue,
-                                    trackColor = BorderSubtle
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = "状态:",
+                                    color = TextMuted,
+                                    fontSize = 12.sp
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = if (state.isBuffering) "低功耗模式" else "待机中",
+                                    color = if (state.isBuffering) SoftGreen else TextMuted,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -578,26 +521,26 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Level 3: Primary Action Button — "保存精彩瞬间" (54dp height, single clean icon)
+                    // Main Save Action Button (Single white lightning icon, no duplicate yellow emoji)
                     Button(
                         onClick = {
                             if (state.isBuffering) {
                                 onTriggerSave(null)
-                                saveFeedbackMessage = "已触发回录合成，过去 ${state.bufferedSeconds.coerceAtLeast(1)} 秒画面正在保存至视频库"
+                                Toast.makeText(context, "正在合成回录视频，请稍候...", Toast.LENGTH_SHORT).show()
                             } else {
-                                saveFeedbackMessage = "原型交互提示：当前未开启实时录屏，点击右侧开关可启动真实回录"
+                                Toast.makeText(context, "请先打开右上角开关启动游戏回录", Toast.LENGTH_SHORT).show()
                             }
                         },
                         enabled = !state.isSavingClip,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
+                            .height(52.dp)
                             .testTag("save_replay_big_btn"),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (state.isBuffering) PrimaryBlue else PrimaryBlue.copy(alpha = 0.92f),
+                            containerColor = PrimaryBlue,
                             contentColor = PureWhite,
-                            disabledContainerColor = Color(0xFFE8EDF3),
+                            disabledContainerColor = Color(0xFFE8EEF5),
                             disabledContentColor = TextMuted
                         ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
@@ -609,58 +552,16 @@ fun DashboardScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = when {
-                                state.isSavingClip -> "正在合成高光视频..."
-                                state.isBuffering -> "保存精彩瞬间（过去 ${settings.bufferDurationSeconds} 秒）"
-                                else -> "保存精彩瞬间"
-                            },
-                            fontSize = 15.sp,
+                            text = if (state.isSavingClip) "正在合成精彩瞬间..." else "保存精彩瞬间",
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
-                    }
-
-                    // Feedback banner when user clicks save or switches game
-                    AnimatedVisibility(visible = saveFeedbackMessage != null) {
-                        saveFeedbackMessage?.let { msg ->
-                            Surface(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 10.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (state.isBuffering) SoftGreenBg else PrimaryBlueLight,
-                                border = BorderStroke(1.dp, if (state.isBuffering) SoftGreen.copy(alpha = 0.3f) else PrimaryBlue.copy(alpha = 0.25f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = msg,
-                                        color = if (state.isBuffering) SoftGreen else PrimaryBlue,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    if (!state.isBuffering) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "立即开启",
-                                            color = PrimaryBlue,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.clickable { requestStartScreenCapture() }
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }
         }
 
-        // 4. Level 4: Recording Specifications Summary & Quick Entry Grid
+        // 5. Recording Specifications Card ("录制规格信息")
         item {
             CyberCard {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -670,40 +571,30 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "当前录制规格",
+                            text = "录制规格信息",
                             color = TextTitle,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
+                        Text(
+                            text = "轻触调整",
+                            color = PrimaryBlue,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(6.dp))
                                 .clickable { onNavigateToSettings() }
                                 .padding(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "调整参数",
-                                color = PrimaryBlue,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = "调整参数",
-                                tint = PrimaryBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
                     val resolutionDisplay = when {
                         settings.resolutionLabel.contains("原生") -> "原生直通"
-                        settings.resolutionHeight >= 1440 || settings.resolutionLabel.contains("2K") -> "2K"
-                        settings.resolutionHeight >= 1080 || settings.resolutionLabel.contains("1080") -> "1080p"
-                        else -> "720p"
+                        settings.resolutionHeight >= 1440 || settings.resolutionLabel.contains("2K") -> "2K 超清"
+                        settings.resolutionHeight >= 1080 || settings.resolutionLabel.contains("1080") -> "1080P"
+                        else -> "720P"
                     }
 
                     Row(
@@ -711,9 +602,9 @@ fun DashboardScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         StatChip(
-                            label = "视频分辨率",
+                            label = "画面分辨率",
                             value = resolutionDisplay,
-                            subValue = if (settings.autoDetectOrientation) "自动横竖屏" else "固定比例",
+                            subValue = if (settings.autoDetectOrientation) "自动识别横竖屏" else "固定比例",
                             highlightValue = true,
                             modifier = Modifier.weight(1f)
                         )
@@ -725,7 +616,7 @@ fun DashboardScreen(
                             modifier = Modifier.weight(1f)
                         )
                         StatChip(
-                            label = "缓存时长",
+                            label = "循环时长",
                             value = "${settings.bufferDurationSeconds} 秒",
                             subValue = settings.videoCodec,
                             highlightValue = false,
@@ -736,270 +627,10 @@ fun DashboardScreen(
             }
         }
 
-        // 5. Four Quick Navigation Cards (Unified #EAF3FF Blue Icon Containers)
-        item {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    QuickFeatureCard(
-                        title = "游戏模式",
-                        description = if (settings.isGameModeActive) "沉浸模式已开启" else "关联游戏与快捷启动",
-                        icon = Icons.Default.SportsEsports,
-                        isHighlighted = settings.isGameModeActive,
-                        onClick = onNavigateToGameMode,
-                        modifier = Modifier.weight(1f)
-                    )
-                    QuickFeatureCard(
-                        title = "回录设置",
-                        description = "画质、码率与帧率",
-                        icon = Icons.Default.Tune,
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    QuickFeatureCard(
-                        title = "视频库",
-                        description = if (recentClips.isNotEmpty()) "已存 ${recentClips.size} 个高光片段" else "管理与预览高光录像",
-                        icon = Icons.Default.Folder,
-                        onClick = onNavigateToLibrary,
-                        modifier = Modifier.weight(1f)
-                    )
-                    QuickFeatureCard(
-                        title = "设置",
-                        description = "悬浮球与存储空间",
-                        icon = Icons.Default.Settings,
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-
-        // 6. Saved Videos Section (Clearly distinguished from "Active Memory Buffering")
+        // 6. Floating Overlay & Quick Settings Tile Card
         item {
             CyberCard {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "已保存视频",
-                                color = TextTitle,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = PrimaryBlueLight
-                            ) {
-                                Text(
-                                    text = "${recentClips.size} 个文件",
-                                    color = PrimaryBlue,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { onNavigateToLibrary() }
-                                .padding(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = "进入视频库",
-                                color = TextMuted,
-                                fontSize = 12.sp
-                            )
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = "进入视频库",
-                                tint = TextMuted,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (recentClips.isNotEmpty()) {
-                        val latest = recentClips.first()
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = SubtleSurface,
-                            border = BorderStroke(1.dp, BorderSubtle),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onPlayClip(latest) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 68.dp, height = 46.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(PrimaryBlueLight),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = "播放预览",
-                                        tint = PrimaryBlue,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = latest.title,
-                                        color = TextTitle,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    val safeDuration = if (latest.durationSeconds in 1..1800) latest.durationSeconds else 60
-                                    Text(
-                                        text = "${latest.gameName} • ${latest.resolution} • ${safeDuration}秒",
-                                        color = TextMuted,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                Text(
-                                    text = "预览",
-                                    color = PrimaryBlue,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-                    } else {
-                        // Compact empty state with quick demo preview trigger
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = SubtleSurface,
-                            border = BorderStroke(1.dp, BorderSubtle),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 14.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(40.dp)
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(PrimaryBlueLight),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Videocam,
-                                            contentDescription = null,
-                                            tint = PrimaryBlue,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Text(
-                                            text = "暂无已保存的高光视频",
-                                            color = TextTitle,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = "点击「保存精彩瞬间」后才会生成视频文件",
-                                            color = TextMuted,
-                                            fontSize = 11.sp
-                                        )
-                                    }
-                                }
-
-                                Spacer(modifier = Modifier.width(8.dp))
-
-                                // Quick entry to preview the player UI with a demo highlight clip
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = PureWhite,
-                                    border = BorderStroke(1.dp, BorderSubtle),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .clickable {
-                                            onPlayClip(
-                                                ReplayClip(
-                                                    id = -1L,
-                                                    title = "${settings.currentGameTitle}_五杀高光时刻_演示",
-                                                    filePath = "DEMO_PREVIEW",
-                                                    durationSeconds = settings.bufferDurationSeconds,
-                                                    fileSizeBytes = 42_500_000L,
-                                                    createdAt = System.currentTimeMillis(),
-                                                    resolution = "1920x1080",
-                                                    fps = settings.fps,
-                                                    gameName = settings.currentGameTitle,
-                                                    isFavorite = false
-                                                )
-                                            )
-                                        }
-                                        .testTag("home_demo_player_btn")
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Movie,
-                                            contentDescription = "播放器预览",
-                                            tint = PrimaryBlue,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "预览播放器",
-                                            color = PrimaryBlue,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 14.dp),
-                        color = BorderSubtle
-                    )
-
-                    // Compact Floating Ball & Quick Settings Tile Row inside the same bottom card (reducing card proliferation)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1009,10 +640,10 @@ fun DashboardScreen(
                             Text(
                                 text = "游戏内悬浮球快捷保存",
                                 color = TextTitle,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
                             )
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
                             Text(
                                 text = if (settings.floatingButtonEnabled && !Settings.canDrawOverlays(context)) {
                                     "需授予系统悬浮窗权限以在游戏上层显示"
@@ -1020,7 +651,7 @@ fun DashboardScreen(
                                     "自动贴边半透明隐身，对局中点按即存"
                                 },
                                 color = if (settings.floatingButtonEnabled && !Settings.canDrawOverlays(context)) SoftOrange else TextMuted,
-                                fontSize = 11.sp
+                                fontSize = 12.sp
                             )
                         }
 
@@ -1067,13 +698,13 @@ fun DashboardScreen(
                                 checkedThumbColor = PureWhite,
                                 checkedTrackColor = PrimaryBlue,
                                 uncheckedThumbColor = PureWhite,
-                                uncheckedTrackColor = Color(0xFFD8E0EA)
+                                uncheckedTrackColor = Color(0xFFD5E0EE)
                             )
                         )
                     }
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = PrimaryBlueLight,

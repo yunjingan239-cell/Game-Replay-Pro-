@@ -66,13 +66,20 @@ class ReplayRecorderService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
+    @Volatile
+    private var isScreenInteractive = true
+
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
+                    isScreenInteractive = false
+                    recordingEngine?.setScreenInteractive(false)
                     Log.d(tag, "Screen off detected — background buffer idling")
                 }
                 Intent.ACTION_SCREEN_ON -> {
+                    isScreenInteractive = true
+                    recordingEngine?.setScreenInteractive(true)
                     Log.d(tag, "Screen on detected — buffer active")
                 }
             }
@@ -232,6 +239,14 @@ class ReplayRecorderService : Service() {
         _serviceStatus.value = _serviceStatus.value.copy(isRunning = true)
     }
 
+    private fun computeEffectiveBufferedSeconds(repo: com.example.data.repository.ReplayRepository): Int {
+        val targetSec = repo.settings.value.bufferDurationSeconds.coerceIn(5, 600)
+        val completedMs = repo.bufferManager.getRawBufferedDurationMs()
+        val currentChunkMs = recordingEngine?.getCurrentChunkElapsedMs() ?: 0L
+        val totalSec = ((completedMs + currentChunkMs) / 1000L).toInt()
+        return totalSec.coerceIn(0, targetSec)
+    }
+
     private fun initializeAndStartEngine(resultCode: Int, resultData: Intent?) {
         val app = application as GameReplayApplication
         val repo = app.repository
@@ -255,7 +270,7 @@ class ReplayRecorderService : Service() {
             onChunkSaved = { _, _ ->
                 _serviceStatus.value = _serviceStatus.value.copy(
                     bufferedChunkCount = repo.bufferManager.getChunkCount(),
-                    bufferedSeconds = repo.bufferManager.getBufferedDurationSeconds(),
+                    bufferedSeconds = computeEffectiveBufferedSeconds(repo),
                     bufferedBytes = repo.bufferManager.getBufferedSizeBytes()
                 )
             },
@@ -293,7 +308,45 @@ class ReplayRecorderService : Service() {
 
         serviceScope.launch {
             repo.settings.collect { updatedSettings ->
+                repo.bufferManager.updateTargetDuration(
+                    updatedSettings.bufferDurationSeconds,
+                    updatedSettings.maxChunksInRing
+                )
                 recordingEngine?.updateSettingsLive(updatedSettings)
+                _serviceStatus.value = _serviceStatus.value.copy(
+                    bufferedChunkCount = repo.bufferManager.getChunkCount(),
+                    bufferedSeconds = computeEffectiveBufferedSeconds(repo),
+                    bufferedBytes = repo.bufferManager.getBufferedSizeBytes()
+                )
+            }
+        }
+
+        serviceScope.launch(Dispatchers.Default) {
+            while (isInstanceAlive && _serviceStatus.value.isRunning) {
+                if (!isScreenInteractive) {
+                    kotlinx.coroutines.delay(3000L)
+                    continue
+                }
+                val current = _serviceStatus.value
+                val targetSec = repo.settings.value.bufferDurationSeconds.coerceIn(5, 600)
+                val delayMs = if (current.bufferedSeconds >= targetSec) 2000L else 1000L
+                kotlinx.coroutines.delay(delayMs)
+                if (isInstanceAlive && _serviceStatus.value.isRunning && isScreenInteractive) {
+                    val newChunks = repo.bufferManager.getChunkCount()
+                    val newSec = computeEffectiveBufferedSeconds(repo)
+                    val newBytes = repo.bufferManager.getBufferedSizeBytes()
+                    val latest = _serviceStatus.value
+                    if (newSec != latest.bufferedSeconds ||
+                        newChunks != latest.bufferedChunkCount ||
+                        newBytes != latest.bufferedBytes
+                    ) {
+                        _serviceStatus.value = latest.copy(
+                            bufferedChunkCount = newChunks,
+                            bufferedSeconds = newSec,
+                            bufferedBytes = newBytes
+                        )
+                    }
+                }
             }
         }
     }
@@ -313,7 +366,7 @@ class ReplayRecorderService : Service() {
                 val repo = app.repository
                 val settings = repo.settings.value
 
-                withTimeoutOrNull(1200L) {
+                withTimeoutOrNull(1500L) {
                     suspendCancellableCoroutine<Unit> { cont ->
                         val engine = recordingEngine
                         if (engine != null) {
@@ -330,13 +383,17 @@ class ReplayRecorderService : Service() {
                 _serviceStatus.value = _serviceStatus.value.copy(
                     isSavingClip = false,
                     bufferedChunkCount = repo.bufferManager.getChunkCount(),
-                    bufferedSeconds = repo.bufferManager.getBufferedDurationSeconds(),
+                    bufferedSeconds = computeEffectiveBufferedSeconds(repo),
                     bufferedBytes = repo.bufferManager.getBufferedSizeBytes()
                 )
 
                 if (savedClip != null) {
-                    Toast.makeText(this@ReplayRecorderService, "已保存精彩瞬间", Toast.LENGTH_SHORT).show()
-                    Log.i(tag, "Replay successfully saved: ${savedClip.title}")
+                    Toast.makeText(
+                        this@ReplayRecorderService,
+                        "已保存精彩瞬间 (${savedClip.durationSeconds}秒)",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    Log.i(tag, "Replay successfully saved: ${savedClip.title} (${savedClip.durationSeconds}s)")
                 } else {
                     Toast.makeText(this@ReplayRecorderService, "保存失败，请稍后重试", Toast.LENGTH_SHORT).show()
                 }
@@ -437,17 +494,7 @@ class ReplayRecorderService : Service() {
                 return true
             }
 
-            val isOsServiceRunning = try {
-                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-                @Suppress("DEPRECATION")
-                am?.getRunningServices(Int.MAX_VALUE)?.any {
-                    it.service.className == ReplayRecorderService::class.java.name
-                } ?: false
-            } catch (_: Exception) {
-                isInstanceAlive
-            }
-
-            val trulyActive = isInstanceAlive && isOsServiceRunning && _serviceStatus.value.isBuffering
+            val trulyActive = isInstanceAlive && _serviceStatus.value.isBuffering
             if (!trulyActive) {
                 if (_serviceStatus.value.isRunning || _serviceStatus.value.isBuffering) {
                     _serviceStatus.value = ServiceStatus(

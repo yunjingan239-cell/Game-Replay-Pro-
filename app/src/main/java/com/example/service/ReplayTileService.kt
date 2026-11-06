@@ -43,10 +43,14 @@ class ReplayTileService : TileService() {
         updateTileState(initialBuffering)
 
         serviceJob?.cancel()
+        var lastBufferingState: Boolean? = initialBuffering
         serviceJob = scope.launch {
             ReplayRecorderService.serviceStatus.collectLatest { status ->
                 val isTrulyBuffering = status.isBuffering && ReplayRecorderService.syncAndVerifyState(this@ReplayTileService)
-                updateTileState(isTrulyBuffering)
+                if (lastBufferingState != isTrulyBuffering) {
+                    lastBufferingState = isTrulyBuffering
+                    updateTileState(isTrulyBuffering)
+                }
             }
         }
     }

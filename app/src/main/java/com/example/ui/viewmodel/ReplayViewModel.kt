@@ -45,8 +45,13 @@ class ReplayViewModel(application: Application) : AndroidViewModel(application) 
     private val repository = (application as GameReplayApplication).repository
     private val gameDetectionManager = com.example.engine.GameDetectionManager(application)
 
-    private val _detectedGames = kotlinx.coroutines.flow.MutableStateFlow(gameDetectionManager.getInstalledGames())
+    private val _detectedGames = kotlinx.coroutines.flow.MutableStateFlow<List<com.example.engine.InstalledGame>>(emptyList())
     val detectedGames = _detectedGames.asStateFlow()
+    private var lastGameScanTimestampMs = 0L
+
+    init {
+        refreshInstalledGames(force = true)
+    }
 
     val clips: StateFlow<List<ReplayClip>> = repository.allClips
         .stateIn(
@@ -102,8 +107,15 @@ class ReplayViewModel(application: Application) : AndroidViewModel(application) 
         initialValue = DashboardUiState()
     )
 
-    fun refreshInstalledGames() {
-        _detectedGames.value = gameDetectionManager.getInstalledGames()
+    fun refreshInstalledGames(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && _detectedGames.value.isNotEmpty() && now - lastGameScanTimestampMs < 15_000L) {
+            return
+        }
+        lastGameScanTimestampMs = now
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            _detectedGames.value = gameDetectionManager.getInstalledGames()
+        }
     }
 
     fun launchGameAndSelect(game: com.example.engine.InstalledGame) {
